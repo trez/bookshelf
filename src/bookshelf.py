@@ -48,13 +48,14 @@ def sort_by_price(bse):
         metadata_json = json.load(metadata)
         return metadata_json['price_history'][-1]['price']
  
-@commander.cli("ls [SHELF] [-q] [--sort-by=METHOD]")
-def list_entries(shelf=None, q=False, sort_by='alpha'):
+@commander.cli("ls [SHELF] [-q] [-r] [--sort-by=METHOD]")
+def list_entries(shelf=None, q=False, r=False, sort_by='alpha'):
     home_path = str(Path(config.home).absolute()) + "/"
     price_total = 0.0
     multiples = 1
     prev_entry = None
     sort_by = 'alpha' if sort_by not in ACCEPTABLE_METHODS else sort_by
+    second_folder = False
     for e in entries(Path(os.path.join(config.home, shelf or '')), sort_by):
         if is_bookshelf_entry(e):
             with open(os.path.join(e, '.bookshelf.metadata'), 'r') as metadata:
@@ -73,7 +74,10 @@ def list_entries(shelf=None, q=False, sort_by='alpha'):
                 if not q:
                     print_metadata(prev_entry, multiples=multiples)
                 prev_entry = None
+            if second_folder and not r:
+                break
             print(f"==> {str(e).removeprefix(home_path)}")
+            second_folder = True
     if prev_entry and not q:
         print_metadata(prev_entry, multiples=multiples)
     print(f"Total price: {price_total}")
