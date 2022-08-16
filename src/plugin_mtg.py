@@ -1,6 +1,13 @@
 import requests
 from datetime import datetime
 import sys
+from enum import Enum
+
+
+class MTGCardFinish(str, Enum):
+    FOIL = "foil"
+    ETCHED = "etched"
+
 
 class PluginMTG:
     def __init__(self, currency):
@@ -25,15 +32,14 @@ class PluginMTG:
         search_request_param = {
             'exact': entry
         }
-        search_request = requests.get(f"https://api.scryfall.com/cards/named", search_request_param).json()
+        search_request = requests.get("https://api.scryfall.com/cards/named", search_request_param).json()
         if oracle_id := search_request.get('oracle_id'):
             card_info_params = {
                 'order': 'released',
                 'unique': 'prints',
                 'q': f'oracle_id:{oracle_id}',
             }
-            cards_info = requests.get(f"https://api.scryfall.com/cards/search", card_info_params).json()
-
+            cards_info = requests.get("https://api.scryfall.com/cards/search", card_info_params).json()
 
             data_pos = None
             if cardset == '*':
@@ -73,3 +79,12 @@ class PluginMTG:
             }
 
             return mtg_dict
+
+    def print_metadata(self, metadata_json, multiples=1):
+        price = metadata_json['price_history'][-1]['price']
+        metadata_str = f"{multiples}x "
+        metadata_str += f"{metadata_json['name']} [{metadata_json['set']}#{metadata_json['collector_number']}]"
+        if finish := metadata_json.get('finish'):
+            metadata_str += f" [{finish}]"
+        metadata_str += f" [{price}]"
+        print(metadata_str)
