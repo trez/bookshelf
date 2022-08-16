@@ -14,7 +14,7 @@ from .bookshelf_config import config
 
 commander = Commander()
 
-home_path = str(Path(config.home).absolute()) + "/"
+home_path = str(Path(config.home).absolute())
 IGNORED_FOLDERS = ['.git']
 ACCEPTABLE_METHODS = ['name', 'price']
 
@@ -39,7 +39,7 @@ def cmd_ls(shelf=None, q=False, r=False, sort_by='name'):
 
 
 def lister(bookshelf, q=False, r=False, sort_by='name'):
-    current_shelf = str(bookshelf.current_path).removeprefix(home_path)
+    current_shelf = fix_shelf_prefix(bookshelf.current_path)
     plugin = find_plugin(current_shelf)
     total_price = 0.0
 
@@ -55,8 +55,12 @@ def lister(bookshelf, q=False, r=False, sort_by='name'):
         if r:
             lister(create_bookshelf(sub_shelf, sort_by), q, r)
         else:
-            # num_books = len(create_bookshelf(sub_shelf).books)
-            print(f"==> {str(sub_shelf).removeprefix(home_path)}")
+            print(f"==> {fix_shelf_prefix(sub_shelf)}")
+
+
+def fix_shelf_prefix(shelf):
+    fixed_shelf = str(shelf).removeprefix(home_path).removeprefix('/')
+    return fixed_shelf or '~root~'
 
 
 def create_bookshelf(shelf_path, sort_by='name'):
@@ -64,7 +68,7 @@ def create_bookshelf(shelf_path, sort_by='name'):
     shelfs = []
 
     for f in shelf_path.iterdir():
-        if f.is_dir():
+        if f.is_dir() and f.name not in IGNORED_FOLDERS:
             possible_book = f / '.bookshelf.metadata'
             if possible_book.exists():
                 with open(possible_book, 'r') as book_data:
@@ -99,7 +103,7 @@ def add_entry(shelf, entry, times=1, foil=False, etched=False, cardset=None):
 
     # Find card on scryfall
     entry_info = None
-    if plugin := find_plugin:
+    if plugin := find_plugin(shelf):
         entry_info = plugin.get_entry_info(entry, cardset, finish)
 
     # Put into bookshelf.
