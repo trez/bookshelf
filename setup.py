@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="bookshelf",
-    version="0.0.1",
+    version="0.0.2",
     author="trez",
     author_email="tobias.vehkajarvi@gmail.com",
     description="Collection tracker",
@@ -17,7 +17,7 @@ setup(
     },
     classifiers=["Programming Language :: Python :: 3"],
     install_requires=[
-        "pyclicommander @ git+https://github.com/trez/pyclicommander@36a0ea1",
+        "pyclicommander @ git+https://github.com/trez/pyclicommander",
     ],
     entry_points={
         "console_scripts": [

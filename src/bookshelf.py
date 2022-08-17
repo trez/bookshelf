@@ -12,7 +12,7 @@ from pyclicommander import Commander
 
 from .bookshelf_config import config
 
-commander = Commander()
+commander = Commander('bookshelf')
 
 home_path = str(Path(config.home).absolute())
 IGNORED_FOLDERS = ['.git']
@@ -23,6 +23,12 @@ def main():
     return commander.call_with_help()
 
 
+@commander.cli("")
+def main_cli():
+     """Let's get help"""
+     commander.help_all_commands()
+
+
 @dataclass
 class Bookshelf:
     current_path: Path
@@ -30,20 +36,34 @@ class Bookshelf:
     books: List[Dict[str, str]]
 
 
-@commander.cli("ls [SHELF] [-q] [-r] [--sort-by=METHOD]")
-def cmd_ls(shelf=None, q=False, r=False, sort_by='name'):
+@commander.cli("ls [SHELF] [-q] [-qq] [-r] [--sort-by=METHOD] [--price-sum]")
+def cmd_ls(shelf=None, q=False, qq=False, r=False, sort_by='name', price_sum=False):
+    """ Browse your bookshelfs.
+
+Flags
+--------
+    -r                  Recursivly browse the shelfs.
+    -q                  Quiet, don't list entries.
+    -qq                 QUIET! don't list shelfs.
+    --sort-by=METHOD    Where METHOD = 'name' | 'price'
+    --price-sum         Sum up prices from shelfs listed.
+    """
     shelf_path = Path(config.home) / (shelf or '')
     sort_by = 'name' if sort_by not in ACCEPTABLE_METHODS else sort_by
     bookshelf = create_bookshelf(shelf_path, sort_by)
-    lister(bookshelf, q, r, sort_by)
+    summed_price = lister(bookshelf, q, qq, r, sort_by, price_sum)
+    if price_sum:
+        print(f"Summed up price: {summed_price}")
 
 
-def lister(bookshelf, q=False, r=False, sort_by='name'):
+def lister(bookshelf, q=False, qq=False, r=False, sort_by='name', price_sum=False):
     current_shelf = fix_shelf_prefix(bookshelf.current_path)
     plugin = find_plugin(current_shelf)
     total_price = 0.0
 
-    print(f"==> {current_shelf} ({len(bookshelf.books)})")
+    if not qq:
+        print(f"==> {current_shelf} ({len(bookshelf.books)})")
+
     for k, g in it.groupby(bookshelf.books, key=lambda r: r['oracle_id']):
         cards = list(g)
         total_price += sum([latest_price(c) for c in cards])
@@ -53,9 +73,13 @@ def lister(bookshelf, q=False, r=False, sort_by='name'):
 
     for sub_shelf in bookshelf.sub_shelfs:
         if r:
-            lister(create_bookshelf(sub_shelf, sort_by), q, r)
+            sub_price = lister(create_bookshelf(sub_shelf, sort_by), q, qq, r, sort_by, price_sum)
+            if price_sum:
+                total_price += sub_price
         else:
-            print(f"==> {fix_shelf_prefix(sub_shelf)}")
+            if not qq:
+                print(f"==> {fix_shelf_prefix(sub_shelf)}")
+    return total_price
 
 
 def fix_shelf_prefix(shelf):
@@ -91,7 +115,8 @@ def latest_price(book):
 
 @commander.cli("add SHELF ENTRY [--times=N] [--foil] [--etched] [--cardset=SET]")
 def add_entry(shelf, entry, times=1, foil=False, etched=False, cardset=None):
-
+    """ Add stuff to your bookshelf.
+    """
     finish = None
     if foil and etched:
         print('Choose either foil or etched or none')
@@ -126,8 +151,3 @@ def find_plugin(shelf):
     for plugin_shelfs, plugin in config.shelfs.items():
         if shelf.startswith(plugin_shelfs):
             return plugin
-
-
-@commander.cli("price-update SHELF [ENTRY] [-r]")
-def scryfall_price_update(shelf, entry=None, r=False):
-    pass
