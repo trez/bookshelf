@@ -1,15 +1,17 @@
 import requests
-from datetime import datetime
+from pathlib import Path
 import sys
+import json
 from enum import Enum
 
+from .plugin_base import PluginBase
 
 class MTGCardFinish(str, Enum):
     FOIL = "foil"
     ETCHED = "etched"
 
 
-class PluginMTG:
+class PluginMTG(PluginBase):
     def __init__(self, currency):
         self.currency = currency
         self.version = '1.0'
@@ -22,11 +24,7 @@ class PluginMTG:
             finish = 'foil'
 
         price_finish = f'{self.currency}_{finish}' if finish else self.currency
-        return float(prices.get(price_finish, '0.0'))
-
-    def get_timestamp(self):
-        my_date = datetime.now()
-        return my_date.isoformat() + 'Z'
+        return round(float(prices.get(price_finish, '0.0')), 2)
 
     def get_entry_info(self, entry, cardset=None, finish=None):
         search_request_param = {

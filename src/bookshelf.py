@@ -53,7 +53,7 @@ Flags
     bookshelf = create_bookshelf(shelf_path, sort_by)
     summed_price = lister(bookshelf, q, qq, r, sort_by, price_sum)
     if price_sum:
-        print(f"Summed up price: {summed_price}")
+        print(f"Summed up price: {round(summed_price, 2)}")
 
 
 def lister(bookshelf, q=False, qq=False, r=False, sort_by='name', price_sum=False):
@@ -69,7 +69,7 @@ def lister(bookshelf, q=False, qq=False, r=False, sort_by='name', price_sum=Fals
         total_price += sum([latest_price(c) for c in cards])
         if not q:
             plugin.print_metadata(cards[0], len(cards))
-    print(f"Total price: {total_price}")
+    print(f"Total price: {round(total_price, 2)}")
 
     for sub_shelf in bookshelf.sub_shelfs:
         if r:
