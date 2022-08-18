@@ -91,6 +91,10 @@ def create_bookshelf(shelf_path, sort_by='name'):
     books = []
     shelfs = []
 
+    if not str(shelf_path.resolve()).startswith(home_path):
+        print("No peeking outside of ~root~")
+        sys.exit(1)
+
     for f in shelf_path.iterdir():
         if f.is_dir() and f.name not in IGNORED_FOLDERS:
             possible_book = f / '.bookshelf.metadata'
