@@ -10,7 +10,7 @@ from pathlib import Path
 
 from pyclicommander import Commander
 
-from .bookshelf_config import config
+from .bookshelf_config import config, find_plugin
 
 commander = Commander('bookshelf')
 
@@ -149,9 +149,3 @@ def add_entry(shelf, entry, times=1, foil=False, etched=False, cardset=None):
             print(path)
     else:
         print("Nothing found.")
-
-
-def find_plugin(shelf):
-    for plugin_shelfs, plugin in config.shelfs.items():
-        if shelf.startswith(plugin_shelfs):
-            return plugin
