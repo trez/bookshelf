@@ -25,8 +25,8 @@ def main():
 
 @commander.cli("")
 def main_cli():
-     """Let's get help"""
-     commander.help_all_commands()
+    """ Let's get help """
+    commander.help_all_commands()
 
 
 @dataclass

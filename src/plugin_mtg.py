@@ -6,6 +6,7 @@ from enum import Enum
 
 from .plugin_base import PluginBase
 
+
 class MTGCardFinish(str, Enum):
     FOIL = "foil"
     ETCHED = "etched"
@@ -32,38 +33,10 @@ class PluginMTG(PluginBase):
         }
         search_request = requests.get("https://api.scryfall.com/cards/named", search_request_param).json()
         if oracle_id := search_request.get('oracle_id'):
-            card_info_params = {
-                'order': 'released',
-                'unique': 'prints',
-                'q': f'oracle_id:{oracle_id}',
-            }
-            cards_info = requests.get("https://api.scryfall.com/cards/search", card_info_params).json()
-
-            data_pos = None
-            if cardset == '*':
-                data_pos = 0
-            else:
-                card_sets = []
-                found_pos = []
-                for pos, card_data in enumerate(cards_info['data']):
-                    sf_card_set = f"{card_data['set']}#{card_data['collector_number']}"
-                    if cardset and sf_card_set.startswith(cardset):
-                        found_pos.append(pos)
-                    card_sets.append(sf_card_set)
-
-                # if no match or too many matches.
-                if not found_pos or len(found_pos) > 1:
-                    print([card_sets[i] for i in found_pos] if found_pos else card_sets)
-                    sys.exit(0)
-
-                data_pos = found_pos[0]
-
-            card_info = cards_info['data'][data_pos]
-
+            card_info = self.__get_card_info(oracle_id, cardset, finish)
             price_history = []
             if price := self.get_price(card_info, finish):
                 price_history.append({'date': self.get_timestamp(), 'price': price, 'currency': 'eur'})
-
             mtg_dict = {
                 'bookshelf_type': 'mtg',
                 'version': self.version,
@@ -77,6 +50,36 @@ class PluginMTG(PluginBase):
             }
 
             return mtg_dict
+
+    def __get_card_info(self, oracle_id, cardset, finish):
+        card_info_params = {
+            'order': 'released',
+            'unique': 'prints',
+            'q': f'oracle_id:{oracle_id}',
+        }
+        cards_info = requests.get("https://api.scryfall.com/cards/search", card_info_params).json()
+
+        data_pos = None
+        if cardset == '*':
+            data_pos = 0
+        else:
+            card_sets = []
+            found_pos = []
+            for pos, card_data in enumerate(cards_info['data']):
+                sf_card_set = f"{card_data['set']}#{card_data['collector_number']}"
+                if cardset and cardset == sf_card_set:
+                    return card_data
+                elif cardset and sf_card_set.startswith(cardset):
+                    found_pos.append(pos)
+                card_sets.append(sf_card_set)
+
+            # if no match or too many matches.
+            if not found_pos or len(found_pos) > 1:
+                print([card_sets[i] for i in found_pos] if found_pos else card_sets)
+                sys.exit(0)
+
+            data_pos = found_pos[0]
+        return cards_info['data'][data_pos]
 
     def print_metadata(self, metadata_json, multiples=1):
         price = metadata_json['price_history'][-1]['price']
