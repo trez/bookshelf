@@ -89,3 +89,26 @@ class PluginMTG(PluginBase):
             metadata_str += f" [{finish}]"
         metadata_str += f" [{price}]"
         print(metadata_str)
+
+    def get_unique_id(self, metadata_json):
+        return metadata_json['scryfall_id']
+
+    def price_update(self, collection):
+        json_data_path = Path("resources/default-cards-20220819090518.json")
+
+        print("Load new prices...")
+        with open(json_data_path, "r") as f:
+            json_data = json.load(f)
+
+        print("Find updates")
+        for jd in json_data:
+            sf_id = jd.get('id')
+            if entries := collection.get(sf_id):
+                for card_path, card_info in entries:
+                    new_price = self.get_price(jd, finish=card_info['finish'])
+                    new_price_entry = {
+                        'date': self.get_timestamp(),
+                        'price': new_price,
+                        'currency': self.currency
+                    }
+                    card_info['price_history'].append(new_price_entry)

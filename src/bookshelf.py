@@ -62,13 +62,13 @@ def lister(bookshelf, q=False, qq=False, r=False, sort_by='name', price_sum=Fals
     total_price = 0.0
 
     if not qq:
-        print(f"==> {current_shelf} ({len(bookshelf.books)})")
+        print(f"=> {current_shelf} ({len(bookshelf.books)})")
 
-    for k, g in it.groupby(bookshelf.books, key=lambda r: r['oracle_id']):
-        cards = list(g)
-        total_price += sum([latest_price(c) for c in cards])
+    for k, g in it.groupby(bookshelf.books, key=lambda r: r[1]['oracle_id']):
+        books = [book_info for book_path, book_info in g]
+        total_price += sum([latest_price(book) for book in books])
         if not q:
-            plugin.print_metadata(cards[0], len(cards))
+            plugin.print_metadata(books[0], len(books))
     print(f"Total price: {round(total_price, 2)}")
 
     for sub_shelf in bookshelf.sub_shelfs:
@@ -105,20 +105,24 @@ def create_bookshelf(shelf_path, sort_by='name'):
             if possible_book.exists():
                 with open(possible_book, 'r') as book_data:
                     book = json.load(book_data)
-                books.append(book)
+                books.append((f, book))
             else:
                 shelfs.append(f)
 
     if sort_by == 'name':
-        books.sort(key=lambda b: b['name'])
+        books.sort(key=lambda b: b[1]['name'])
     elif sort_by == 'price':
-        books.sort(key=latest_price)
+        books.sort(key=lambda b: latest_price(b[1]))
 
     return Bookshelf(shelf_path, shelfs, books)
 
 
 def latest_price(book):
-    return book['price_history'][-1]['price']
+    return get_prices(book)[-1]
+
+
+def get_prices(book):
+    return [b['price'] for b in book['price_history']]
 
 
 @commander.cli("add SHELF ENTRY [--times=N] [--foil] [--etched] [--cardset=SET]")
@@ -142,14 +146,58 @@ def add_entry(shelf, entry, times=1, foil=False, etched=False, cardset=None):
     # Put into bookshelf.
     if entry_info:
         price = entry_info['price_history'][-1]['price']
-        print(f"Adding {entry}[{entry_info['set']}#{entry_info['collector_number']}] [{price}] @ {shelf}")
+        print(f"Adding {entry_info['name']} [{entry_info['set']}#{entry_info['collector_number']}] [{price}] @ {shelf}")
         for n in range(int(times)):
             entry_id = f"{entry}-{str(uuid.uuid4())}"
             path = os.path.join(config.home, shelf, entry_id)
             Path(path).mkdir(parents=True)
             path_metadata = os.path.join(path, '.bookshelf.metadata')
             with open(path_metadata, 'w') as f:
-                f.write(json.dumps(entry_info))
-            print(path)
+                f.write(json.dumps(entry_info, indent=2))
     else:
         print("Nothing found.")
+
+
+@commander.cli("price-update SHELF [ENTRY] [PRICE] [-r]")
+def price_update(shelf, entry=None, price=None, r=False):
+    """ Update shelf with prices either by lookup or by given price. """
+    shelf_path = Path(config.home) / (shelf or '')
+    plugin = find_plugin(fix_shelf_prefix(shelf_path))
+    bookshelf = create_bookshelf(shelf_path)
+    collection = {}
+
+    pricer(bookshelf, collection, r)
+    plugin.price_update(collection)
+
+    price_fluctuation = 0.0
+    for book_id, books in collection.items():
+        for book_path, book_info in books:
+            prices = get_prices(book_info)
+            price_change_text = "~"
+            if len(prices) > 1:
+                a, b = prices[-2:]
+                price_change = round(b - a, 2)
+                price_fluctuation += price_change
+                price_change_text = f"+{price_change}" if price_change >= 0 else f"{price_change}"
+
+            print(
+                f"Updating {book_info['name']} [{book_info['set']}#{book_info['collector_number']}]"
+                f" [{prices[-1]}][{price_change_text}] @ {shelf}"
+            )
+            with open(book_path / '.bookshelf.metadata', 'w') as f:
+                f.write(json.dumps(book_info, indent=2))
+    print(f"Price fluctuation: {price_fluctuation}")
+
+
+def pricer(bookshelf, collection, r=False):
+    current_shelf = fix_shelf_prefix(bookshelf.current_path)
+    plugin = find_plugin(current_shelf)
+
+    for book_path, book in bookshelf.books:
+        book_id = plugin.get_unique_id(book)
+        book_collection = collection.setdefault(book_id, [])
+        book_collection.append((book_path, book))
+
+    if r:
+        for sub_shelf in bookshelf.sub_shelfs:
+            pricer(sub_shelf, collection, r)
