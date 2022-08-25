@@ -83,7 +83,9 @@ class PluginMTG(PluginBase):
 
     def print_metadata(self, metadata_json, multiples=1):
         price = metadata_json['price_history'][-1]['price']
-        metadata_str = f"{multiples}x "
+        metadata_str = ""
+        if multiples is not None:
+            metadata_str = f"{multiples}x "
         metadata_str += f"{metadata_json['name']} [{metadata_json['set']}#{metadata_json['collector_number']}]"
         if finish := metadata_json.get('finish'):
             metadata_str += f" [{finish}]"
