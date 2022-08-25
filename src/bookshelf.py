@@ -220,10 +220,9 @@ Flags
         match &= not cardset or book['set'] == cardset
         return match
 
-    depth_arg = int(depth) if depth is not None else None
     shelf_path = Path(config.home) / (shelf or '')
     bookshelf = create_bookshelf(shelf_path)
-    matches = searcher(bookshelf, filter_fun, depth_arg)
+    matches = searcher(bookshelf, filter_fun, depth and int(depth))
 
     summed_price = 0.0
 
@@ -253,6 +252,6 @@ def searcher(bookshelf, filter_fun, depth=None):
 
     if depth is None or depth > 0:
         for sub_shelf in bookshelf.sub_shelfs:
-            matches.extend(searcher(create_bookshelf(sub_shelf), filter_fun, depth - 1 if depth else None))
+            matches.extend(searcher(create_bookshelf(sub_shelf), filter_fun, depth and depth-1))
 
     return matches
