@@ -158,20 +158,21 @@ def add_entry(shelf, entry, times=1, foil=False, etched=False, cardset=None):
         print("Nothing found.")
 
 
-@commander.cli("price-update SHELF [ENTRY] [PRICE] [-r]")
-def price_update(shelf, entry=None, price=None, r=False):
+@commander.cli("price-update SHELF [ENTRY] [PRICE] [-r] [--dry]")
+def price_update(shelf, entry=None, price=None, r=False, dry=False):
     """ Update shelf with prices either by lookup or by given price. """
     shelf_path = Path(config.home) / (shelf or '')
     plugin = find_plugin(fix_shelf_prefix(shelf_path))
     bookshelf = create_bookshelf(shelf_path)
-    collection = {}
 
+    collection = {}
     pricer(bookshelf, collection, r)
     plugin.price_update(collection)
 
     price_fluctuation = 0.0
     for book_id, books in collection.items():
         for book_path, book_info in books:
+            p = fix_shelf_prefix(book_path.parents[0])
             prices = get_prices(book_info)
             price_change_text = "~"
             if len(prices) > 1:
@@ -181,11 +182,12 @@ def price_update(shelf, entry=None, price=None, r=False):
                 price_change_text = f"+{price_change}" if price_change >= 0 else f"{price_change}"
 
             print(
-                f"Updating {book_info['name']} [{book_info['set']}#{book_info['collector_number']}]"
-                f" [{prices[-1]}][{price_change_text}] @ {shelf}"
+                f"{p} => {book_info['name']} [{book_info['set']}#{book_info['collector_number']}]"
+                f" [{prices[-1]}][{price_change_text}]"
             )
-            with open(book_path / '.bookshelf.metadata', 'w') as f:
-                f.write(json.dumps(book_info, indent=2))
+            if not dry:
+                with open(book_path / '.bookshelf.metadata', 'w') as f:
+                    f.write(json.dumps(book_info, indent=2))
     print(f"Price fluctuation: {price_fluctuation}")
 
 
@@ -200,4 +202,57 @@ def pricer(bookshelf, collection, r=False):
 
     if r:
         for sub_shelf in bookshelf.sub_shelfs:
-            pricer(sub_shelf, collection, r)
+            pricer(create_bookshelf(sub_shelf), collection, r)
+
+
+@commander.cli("search [SHELF] [--title=NAME] [--cardset=SET] [--depth=N] [-q] [--price-sum] [--full-path]")
+def search_bookshelf(shelf=None, title=None, cardset=None, depth=None, q=False, price_sum=False, full_path=False):
+    """ Look through your bookshelfs for a specific title.
+
+Flags
+--------
+    --depth=N           Limit how deep into the shelfs one looks, default is indefinitly.
+    --full-path         Show the real name of entries.
+    """
+    def filter_fun(book):
+        match = title is not None or cardset is not None
+        match &= not title or book['name'].lower() == title.lower()
+        match &= not cardset or book['set'] == cardset
+        return match
+
+    depth_arg = int(depth) if depth is not None else None
+    shelf_path = Path(config.home) / (shelf or '')
+    bookshelf = create_bookshelf(shelf_path)
+    matches = searcher(bookshelf, filter_fun, depth_arg)
+
+    summed_price = 0.0
+
+    for match_path, match_info in matches:
+        p = fix_shelf_prefix(match_path)
+        plugin = find_plugin(p)
+        summed_price += latest_price(match_info)
+        if not q:
+            if full_path:
+                print(f"{p} => ", end='')
+            else:
+                print(f"{fix_shelf_prefix(match_path.parents[0])} => ", end='')
+            plugin.print_metadata(match_info, multiples=None)
+
+    if price_sum:
+        print(f"Summed up price: {round(summed_price, 2)}")
+
+
+def searcher(bookshelf, filter_fun, depth=None):
+    current_shelf = fix_shelf_prefix(bookshelf.current_path)
+    plugin = find_plugin(current_shelf)
+
+    matches = []
+    for book_path, book in bookshelf.books:
+        if filter_fun(book):
+            matches.append((book_path, book))
+
+    if depth is None or depth > 0:
+        for sub_shelf in bookshelf.sub_shelfs:
+            matches.extend(searcher(create_bookshelf(sub_shelf), filter_fun, depth - 1 if depth else None))
+
+    return matches
