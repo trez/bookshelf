@@ -52,7 +52,7 @@ Flags
     sort_by = 'name' if sort_by not in ACCEPTABLE_METHODS else sort_by
     bookshelf = create_bookshelf(shelf_path, sort_by)
     summed_price = lister(bookshelf, q, qq, r, sort_by, price_sum)
-    if price_sum:
+    if price_sum and r:
         print(f"Summed up price: {round(summed_price, 2)}")
 
 
@@ -69,10 +69,13 @@ def lister(bookshelf, q=False, qq=False, r=False, sort_by='name', price_sum=Fals
         total_price += sum([latest_price(book) for book in books])
         if not q:
             plugin.print_metadata(books[0], len(books))
-    print(f"Total price: {round(total_price, 2)}")
+
+    if price_sum:
+        print(f"Total price: {round(total_price, 2)}")
 
     for sub_shelf in bookshelf.sub_shelfs:
         if r:
+            print("")
             sub_price = lister(create_bookshelf(sub_shelf, sort_by), q, qq, r, sort_by, price_sum)
             if price_sum:
                 total_price += sub_price
@@ -83,7 +86,7 @@ def lister(bookshelf, q=False, qq=False, r=False, sort_by='name', price_sum=Fals
 
 
 def fix_shelf_prefix(shelf):
-    fixed_shelf = str(shelf).removeprefix(home_path).removeprefix('/')
+    fixed_shelf = str(shelf).removeprefix(home_path).removeprefix('/').removesuffix('/')
     return fixed_shelf or '~root~'
 
 
@@ -129,6 +132,9 @@ def get_prices(book):
 def add_entry(shelf, entry, times=1, foil=False, etched=False, cardset=None):
     """ Add stuff to your bookshelf.
     """
+    plugin = find_plugin(shelf)
+
+    # FIXME: (MTG) Determine 'finish' for card entry
     finish = None
     if foil and etched:
         print('Choose either foil or etched or none')
@@ -138,15 +144,14 @@ def add_entry(shelf, entry, times=1, foil=False, etched=False, cardset=None):
     elif etched:
         finish = "etched"
 
+    # FIXME: PluginMTGify
     # Find card on scryfall
-    entry_info = None
-    if plugin := find_plugin(shelf):
-        entry_info = plugin.get_entry_info(entry, cardset, finish)
+    entry_info = plugin.get_entry_info(entry, cardset, finish) if plugin else None
 
     # Put into bookshelf.
     if entry_info:
-        price = entry_info['price_history'][-1]['price']
-        print(f"Adding {entry_info['name']} [{entry_info['set']}#{entry_info['collector_number']}] [{price}] @ {shelf}")
+        print(f"{fix_shelf_prefix(shelf)} => {plugin.metadata_stringify(entry_info, multiples=None)}")
+
         for n in range(int(times)):
             entry_id = f"{entry}-{str(uuid.uuid4())}"
             path = os.path.join(config.home, shelf, entry_id)
@@ -181,10 +186,8 @@ def price_update(shelf, entry=None, price=None, r=False, dry=False):
                 price_fluctuation += price_change
                 price_change_text = f"+{price_change}" if price_change >= 0 else f"{price_change}"
 
-            print(
-                f"{p} => {book_info['name']} [{book_info['set']}#{book_info['collector_number']}]"
-                f" [{prices[-1]}][{price_change_text}]"
-            )
+            print(f"{p} => {plugin.metadata_stringify(book_info, None)} [{price_change_text}]")
+
             if not dry:
                 with open(book_path / '.bookshelf.metadata', 'w') as f:
                     f.write(json.dumps(book_info, indent=2))
@@ -242,9 +245,6 @@ Flags
 
 
 def searcher(bookshelf, filter_fun, depth=None):
-    current_shelf = fix_shelf_prefix(bookshelf.current_path)
-    plugin = find_plugin(current_shelf)
-
     matches = []
     for book_path, book in bookshelf.books:
         if filter_fun(book):

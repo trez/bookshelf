@@ -81,7 +81,7 @@ class PluginMTG(PluginBase):
             data_pos = found_pos[0]
         return cards_info['data'][data_pos]
 
-    def print_metadata(self, metadata_json, multiples=1):
+    def metadata_stringify(self, metadata_json, multiples=1):
         price = metadata_json['price_history'][-1]['price']
         metadata_str = ""
         if multiples is not None:
@@ -90,7 +90,10 @@ class PluginMTG(PluginBase):
         if finish := metadata_json.get('finish'):
             metadata_str += f" [{finish}]"
         metadata_str += f" [{price}]"
-        print(metadata_str)
+        return metadata_str
+
+    def print_metadata(self, metadata_json, multiples=1):
+        print(self.metadata_stringify(metadata_json, multiples))
 
     def get_unique_id(self, metadata_json):
         return metadata_json['scryfall_id']
