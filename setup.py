@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="bookshelf",
-    version="0.0.2",
+    version="0.0.3",
     author="trez",
     author_email="tobias.vehkajarvi@gmail.com",
     description="Collection tracker",

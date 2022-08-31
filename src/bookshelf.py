@@ -36,8 +36,16 @@ class Bookshelf:
     books: List[Dict[str, str]]
 
 
-@commander.cli("ls [SHELF] [-q] [-qq] [-r] [--sort-by=METHOD] [--price-sum]")
-def cmd_ls(shelf=None, q=False, qq=False, r=False, sort_by='name', price_sum=False):
+def try_float(f):
+    if f is not None:
+        return float(f)
+
+def try_int(i):
+    if i is not None:
+        return int(i)
+
+@commander.cli("ls [SHELF] [-q] [-qq] [-r] [--sort-by=METHOD] [--price-sum] [--price-min=X] [--price-max=X]")
+def cmd_ls(shelf=None, q=False, qq=False, r=False, sort_by='name', price_sum=False, price_min=None, price_max=None):
     """ Browse your bookshelfs.
 
 Flags
@@ -46,17 +54,19 @@ Flags
     -q                  Quiet, don't list entries.
     -qq                 QUIET! don't list shelfs.
     --sort-by=METHOD    Where METHOD = 'name' | 'price'
+    --price-min=X       Filter entries with its latest price being over X.
+    --price-max=X       Filter entries with its latest price being under X.
     --price-sum         Sum up prices from shelfs listed.
     """
     shelf_path = Path(config.home) / (shelf or '')
     sort_by = 'name' if sort_by not in ACCEPTABLE_METHODS else sort_by
     bookshelf = create_bookshelf(shelf_path, sort_by)
-    summed_price = lister(bookshelf, q, qq, r, sort_by, price_sum)
+    summed_price = lister(bookshelf, q, qq, r, sort_by, price_sum, try_float(price_min), try_float(price_max))
     if price_sum and r:
         print(f"Summed up price: {round(summed_price, 2)}")
 
 
-def lister(bookshelf, q=False, qq=False, r=False, sort_by='name', price_sum=False):
+def lister(bookshelf, q=False, qq=False, r=False, sort_by='name', price_sum=False, price_min=None, price_max=None):
     current_shelf = fix_shelf_prefix(bookshelf.current_path)
     plugin = find_plugin(current_shelf)
     total_price = 0.0
@@ -65,10 +75,23 @@ def lister(bookshelf, q=False, qq=False, r=False, sort_by='name', price_sum=Fals
         print(f"=> {current_shelf} ({len(bookshelf.books)})")
 
     for k, g in it.groupby(bookshelf.books, key=lambda r: r[1]['oracle_id']):
-        books = [book_info for book_path, book_info in g]
-        total_price += sum([latest_price(book) for book in books])
-        if not q:
-            plugin.print_metadata(books[0], len(books))
+        num_books = 0
+        book = None
+        for book_path, book_info in g:
+            price = latest_price(book_info)
+            if price_min is not None and price < price_min:
+                continue
+
+            if price_max is not None and price > price_max:
+                continue
+
+            total_price += price
+            num_books += 1
+            if book is None:
+                book = book_info
+
+        if book and not q:
+            plugin.print_metadata(book, num_books)
 
     if price_sum:
         print(f"Total price: {round(total_price, 2)}")
@@ -76,7 +99,7 @@ def lister(bookshelf, q=False, qq=False, r=False, sort_by='name', price_sum=Fals
     for sub_shelf in bookshelf.sub_shelfs:
         if r:
             print("")
-            sub_price = lister(create_bookshelf(sub_shelf, sort_by), q, qq, r, sort_by, price_sum)
+            sub_price = lister(create_bookshelf(sub_shelf, sort_by), q, qq, r, sort_by, price_sum, price_min, price_max)
             if price_sum:
                 total_price += sub_price
         else:
@@ -225,7 +248,7 @@ Flags
 
     shelf_path = Path(config.home) / (shelf or '')
     bookshelf = create_bookshelf(shelf_path)
-    matches = searcher(bookshelf, filter_fun, depth and int(depth))
+    matches = searcher(bookshelf, filter_fun, try_int(depth))
 
     summed_price = 0.0
 
