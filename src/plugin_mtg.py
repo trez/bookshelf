@@ -81,7 +81,10 @@ class PluginMTG(PluginBase):
             data_pos = found_pos[0]
         return cards_info['data'][data_pos]
 
-    def metadata_stringify(self, metadata_json, multiples=1):
+    def metadata_stringify(self, metadata_json, only_title=False, multiples=1):
+        if only_title:
+            return metadata_json['name']
+
         price = metadata_json['price_history'][-1]['price']
         metadata_str = ""
         if multiples is not None:
@@ -92,14 +95,15 @@ class PluginMTG(PluginBase):
         metadata_str += f" [{price}]"
         return metadata_str
 
-    def print_metadata(self, metadata_json, multiples=1):
-        print(self.metadata_stringify(metadata_json, multiples))
+    def print_metadata(self, metadata_json, only_title=False, multiples=1):
+        print(self.metadata_stringify(metadata_json, only_title, multiples))
 
     def get_unique_id(self, metadata_json):
         return metadata_json['scryfall_id']
 
     def price_update(self, collection):
-        json_data_path = Path("resources/default-cards-20220819090518.json")
+        json_data_path = Path("resources/cards.json")
+        print(f"Trying to load: {json_data_path.resolve()}")
 
         print("Load new prices...")
         with open(json_data_path, "r") as f:

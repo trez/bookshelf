@@ -44,8 +44,8 @@ def try_int(i):
     if i is not None:
         return int(i)
 
-@commander.cli("ls [SHELF] [-q] [-qq] [-r] [--sort-by=METHOD] [--price-sum] [--price-min=X] [--price-max=X]")
-def cmd_ls(shelf=None, q=False, qq=False, r=False, sort_by='name', price_sum=False, price_min=None, price_max=None):
+@commander.cli("ls [SHELF] [-q] [-qq] [-r] [-t] [--no-group] [--sort-by=METHOD] [--price-sum] [--price-min=X] [--price-max=X]")
+def cmd_ls(shelf=None, q=False, qq=False, r=False, t=False, no_group=False, sort_by='name', price_sum=False, price_min=None, price_max=None):
     """ Browse your bookshelfs.
 
 Flags
@@ -53,6 +53,8 @@ Flags
     -r                  Recursivly browse the shelfs.
     -q                  Quiet, don't list entries.
     -qq                 QUIET! don't list shelfs.
+    -t                  Print only title not any extra metadata.
+    --no-group          Don't group multiples of entries, row by row instead.
     --sort-by=METHOD    Where METHOD = 'name' | 'price'
     --price-min=X       Filter entries with its latest price being over X.
     --price-max=X       Filter entries with its latest price being under X.
@@ -61,12 +63,13 @@ Flags
     shelf_path = Path(config.home) / (shelf or '')
     sort_by = 'name' if sort_by not in ACCEPTABLE_METHODS else sort_by
     bookshelf = create_bookshelf(shelf_path, sort_by)
-    summed_price = lister(bookshelf, q, qq, r, sort_by, price_sum, try_float(price_min), try_float(price_max))
+    summed_price = lister(bookshelf, q, qq, r, t, no_group, sort_by, price_sum, try_float(price_min), try_float(price_max))
     if price_sum and r:
         print(f"Summed up price: {round(summed_price, 2)}")
 
 
-def lister(bookshelf, q=False, qq=False, r=False, sort_by='name', price_sum=False, price_min=None, price_max=None):
+def lister(bookshelf, q=False, qq=False, r=False, t=False, no_group=False, sort_by='name', price_sum=False, price_min=None,
+           price_max=None):
     current_shelf = fix_shelf_prefix(bookshelf.current_path)
     plugin = find_plugin(current_shelf)
     total_price = 0.0
@@ -86,20 +89,26 @@ def lister(bookshelf, q=False, qq=False, r=False, sort_by='name', price_sum=Fals
                 continue
 
             total_price += price
-            num_books += 1
-            if book is None:
-                book = book_info
 
-        if book and not q:
-            plugin.print_metadata(book, num_books)
+            if no_group and not q:
+                plugin.print_metadata(book_info, only_title=t, multiples=None)
+            else:
+                num_books += 1
+                if book is None:
+                    book = book_info
+
+        if not no_group and book and not q:
+            plugin.print_metadata(book, only_title=t, multiples=num_books)
 
     if price_sum:
         print(f"Total price: {round(total_price, 2)}")
 
     for sub_shelf in bookshelf.sub_shelfs:
         if r:
-            print("")
-            sub_price = lister(create_bookshelf(sub_shelf, sort_by), q, qq, r, sort_by, price_sum, price_min, price_max)
+            if not qq:
+                print("")
+
+            sub_price = lister(create_bookshelf(sub_shelf, sort_by), q, qq, r, t, no_group, sort_by, price_sum, price_min, price_max)
             if price_sum:
                 total_price += sub_price
         else:
@@ -173,8 +182,6 @@ def add_entry(shelf, entry, times=1, foil=False, etched=False, cardset=None):
 
     # Put into bookshelf.
     if entry_info:
-        print(f"{fix_shelf_prefix(shelf)} => {plugin.metadata_stringify(entry_info, multiples=None)}")
-
         for n in range(int(times)):
             entry_id = f"{entry}-{str(uuid.uuid4())}"
             path = os.path.join(config.home, shelf, entry_id)
@@ -182,6 +189,7 @@ def add_entry(shelf, entry, times=1, foil=False, etched=False, cardset=None):
             path_metadata = os.path.join(path, '.bookshelf.metadata')
             with open(path_metadata, 'w') as f:
                 f.write(json.dumps(entry_info, indent=2))
+            print(f"{fix_shelf_prefix(shelf)} => {plugin.metadata_stringify(entry_info, multiples=None)}")
     else:
         print("Nothing found.")
 
@@ -231,24 +239,36 @@ def pricer(bookshelf, collection, r=False):
             pricer(create_bookshelf(sub_shelf), collection, r)
 
 
-@commander.cli("search [SHELF] [--title=NAME] [--cardset=SET] [--depth=N] [-q] [--price-sum] [--full-path]")
-def search_bookshelf(shelf=None, title=None, cardset=None, depth=None, q=False, price_sum=False, full_path=False):
+@commander.cli("search [SHELF] [--title=NAME] [--cardset=SET] [--depth=N] [-q] [-t] [--price-sum] [--full-path] [--price-min=X] [--price-max=X]")
+def cmd_search(shelf=None, title=None, cardset=None, depth=None, q=False, t=False, price_sum=False, full_path=False, price_min=None, price_max=None):
     """ Look through your bookshelfs for a specific title.
 
 Flags
 --------
+    -q                  Quiet, don't list entries.
+    -t                  Print only title not any extra metadata.
     --depth=N           Limit how deep into the shelfs one looks, default is indefinitly.
+    --price-min=X       Filter entries with its latest price being over X.
+    --price-max=X       Filter entries with its latest price being under X.
+    --price-sum         Sum up prices from shelfs listed.
     --full-path         Show the real name of entries.
     """
     def filter_fun(book):
+        # print(f"{title=}")
+        price = latest_price(book)
         match = title is not None or cardset is not None
-        match &= not title or book['name'].lower() == title.lower()
-        match &= not cardset or book['set'] == cardset
+        match &= title is None or book['name'].lower() == title.lower()
+        match &= cardset is None or book['set'] == cardset
+        match &= price_min is None or price >= price_min
+        match &= price_max is None or price <= price_max
         return match
 
     shelf_path = Path(config.home) / (shelf or '')
     bookshelf = create_bookshelf(shelf_path)
+    price_min = try_float(price_min)
+    price_max = try_float(price_max)
     matches = searcher(bookshelf, filter_fun, try_int(depth))
+
 
     summed_price = 0.0
 
@@ -261,7 +281,7 @@ Flags
                 print(f"{p} => ", end='')
             else:
                 print(f"{fix_shelf_prefix(match_path.parents[0])} => ", end='')
-            plugin.print_metadata(match_info, multiples=None)
+            plugin.print_metadata(match_info, only_title=t, multiples=None)
 
     if price_sum:
         print(f"Summed up price: {round(summed_price, 2)}")
