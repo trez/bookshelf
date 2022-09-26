@@ -256,7 +256,7 @@ Flags
     def filter_fun(book):
         # print(f"{title=}")
         price = latest_price(book)
-        match = title is not None or cardset is not None
+        match = True
         match &= title is None or book['name'].lower() == title.lower()
         match &= cardset is None or book['set'] == cardset
         match &= price_min is None or price >= price_min
@@ -267,9 +267,14 @@ Flags
     bookshelf = create_bookshelf(shelf_path)
     price_min = try_float(price_min)
     price_max = try_float(price_max)
+
+    # Any filters specified?
+    filters = [title, cardset, price_min, price_max]
+    if not any((f is not None for f in filters)):
+        print("No filters specied.")
+        return
+
     matches = searcher(bookshelf, filter_fun, try_int(depth))
-
-
     summed_price = 0.0
 
     for match_path, match_info in matches:
