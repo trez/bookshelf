@@ -7,6 +7,16 @@ import colors as pycolors
 
 from .plugin_base import PluginBase
 
+set_set = {"Urza's Saga": 'usg', "Urza's Destiny": 'uds', '7th Edition': '7ed', 'Exodus': 'exo', 'Classic 6th Edition': '6ed', 
+           'Limited Edition Beta': 'leb', 'Fallen Empires': 'fem', 'Alliances': 'all', 'Planeshift': 'pls', 'Mirrodin': 'mrd',
+           '9th Edition': '9ed', 'Champions of Kamigawa': 'chk', 'Ravnica: City of Guilds': 'rav', '5th Edition': '5ed',
+           '8th Edition': '8ed', 'Invasion': 'inv', 'Ice Age': 'ice', 'Visions': 'vis', 'Homelands': 'hml', 'Legions': 'lgn',
+           'The Dark': 'drk', 'Tempest': 'tmp', 'Fifth Dawn': '5dn', 'Dissension': 'dis', 'Mercadian Masques': 'mmq', 
+           'Coldsnap': 'csp', 'Judgment': 'jud', 'Legends': 'leg', '4th Edition': '4ed', "Urza's Legacy": 'ulg', 'Prophecy': 'pcy', 
+           'Portal': 'por', 'Portal Second Age': 'P02', 'Nemesis': 'nem', 'Antiquities': 'atq', 'Darksteel': 'dst', 'Gatecrash': 'gtc',
+           'Unlimited Edition': '2ed', 'Chronicles': 'chr', 'Apocalypse': 'apc', 'Torment': 'tor', 'Planar Chaos': 'plc',
+           'Stronghold': 'sth', 'Scourge': 'scg', 'Onslaught': 'ons', 'Weatherlight': 'wth', 'Mirage': 'mir', 'Arabian Nights': 'arn',
+           'Time Spiral Timeshifted': 'tsb', 'Betrayers of Kamigawa': 'bok', 'Odyssey': 'ody', 'Revised Edition': '3ed', 'Time Spiral': 'tsp'}
 
 class MTGCardFinish(str, Enum):
     FOIL = "foil"
