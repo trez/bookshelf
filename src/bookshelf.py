@@ -164,8 +164,8 @@ def get_prices(book):
     return [b['price'] for b in book['price_history']]
 
 
-@commander.cli("add SHELF ENTRY [--times=N] [--foil] [--etched] [--cardset=SET]")
-def add_entry(shelf, entry, times=1, foil=False, etched=False, cardset=None):
+@commander.cli("add SHELF [ENTRY] [--times=N] [--foil] [--etched] [--cardset=SET]")
+def add_entry(shelf, entry=None, times=1, foil=False, etched=False, cardset=None):
     """ Add stuff to your bookshelf.
     """
     plugin = find_plugin(shelf)
@@ -187,7 +187,8 @@ def add_entry(shelf, entry, times=1, foil=False, etched=False, cardset=None):
     # Put into bookshelf.
     if entry_info:
         for n in range(int(times)):
-            entry_id = f"{entry}-{str(uuid.uuid4())}"
+            entry_name = entry if entry else entrify(entry_info.get('name'))
+            entry_id = f"{entry_name}-{str(uuid.uuid4())}"
             path = os.path.join(config.home, shelf, entry_id)
             Path(path).mkdir(parents=True)
             path_metadata = os.path.join(path, '.bookshelf.metadata')
@@ -196,6 +197,15 @@ def add_entry(shelf, entry, times=1, foil=False, etched=False, cardset=None):
             print(f"{fix_shelf_prefix(shelf)} => {plugin.metadata_stringify(entry_info, multiples=None)}")
     else:
         print("Nothing found.")
+
+def entrify(entry_name):
+    entry_split = entry_name.split("/")
+    if len(entry_split) > 1:
+        name = entry_split[0]
+    else:
+        name = entry_name
+
+    return name.replace('\'', '').replace(',', '').strip().lower()
 
 
 @commander.cli("price-update SHELF [ENTRY] [PRICE] [-r] [--dry]")

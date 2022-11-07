@@ -29,21 +29,31 @@ class PluginMTG(PluginBase):
         price_finish = f'{self.currency}_{finish}' if finish else self.currency
         return round(float(prices.get(price_finish, '0.0')), 2)
 
-    def get_entry_info(self, entry, cardset=None, finish=None):
-        search_request_param = {
-            'exact': entry
-        }
-        search_request = requests.get("https://api.scryfall.com/cards/named", search_request_param).json()
-        if oracle_id := search_request.get('oracle_id'):
-            card_info = self.__get_card_info(oracle_id, cardset, finish)
+    def get_entry_info(self, entry=None, cardset=None, finish=None):
+        card_info = None
+        if entry:
+            search_request_param = {
+                'exact': entry
+            }
+            search_request = requests.get("https://api.scryfall.com/cards/named", search_request_param).json()
+
+            if oracle_id := search_request.get('oracle_id'):
+                card_info = self.__get_card_info(oracle_id, cardset, finish)
+        elif cardset:
+            setcode, cardnum = cardset.split("#")
+            card_info = requests.get(f"https://api.scryfall.com/cards/{setcode}/{cardnum}/en").json()
+
+        if card_info:
             price_history = []
+
             if price := self.get_price(card_info, finish):
                 price_history.append({'date': self.get_timestamp(), 'price': price, 'currency': 'eur'})
+
             mtg_dict = {
                 'bookshelf_type': 'mtg',
                 'version': self.version,
                 'name': card_info.get('name'),
-                'oracle_id': oracle_id,
+                'oracle_id': card_info.get('oracle_id'),
                 'scryfall_id': card_info.get('id'),
                 'set': card_info.get('set'),
                 'collector_number': card_info.get('collector_number'),
