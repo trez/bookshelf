@@ -7,7 +7,10 @@ from .plugin_mtg import PluginMTG
 class BookshelfConfig:
     home = "/home/trez/lekplats/billy"
     shelfs = {
-        "mtg/": PluginMTG(currency='eur')
+        "mtg/": PluginMTG(
+            currency='eur',
+            foil_color='yellow',
+        )
     }
 
 

@@ -16,7 +16,7 @@ commander = Commander('bookshelf')
 
 home_path = str(Path(config.home).absolute())
 IGNORED_FOLDERS = ['.git']
-ACCEPTABLE_METHODS = ['name', 'price']
+ACCEPTABLE_SORTS = ['name', 'price']
 
 
 def main():
@@ -44,8 +44,8 @@ def try_int(i):
     if i is not None:
         return int(i)
 
-@commander.cli("ls [SHELF] [-q] [-qq] [-r] [-t] [--no-group] [--sort-by=METHOD] [--price-sum] [--price-min=X] [--price-max=X]")
-def cmd_ls(shelf=None, q=False, qq=False, r=False, t=False, no_group=False, sort_by='name', price_sum=False, price_min=None, price_max=None):
+@commander.cli("ls [SHELF] [-q] [-qq] [-r] [-t] [--no-group] [--sort-by=METHOD] [--price-sum] [--price-min=X] [--price-max=X] [--foil]")
+def cmd_ls(shelf=None, q=False, qq=False, r=False, t=False, no_group=False, sort_by='name', price_sum=False, price_min=None, price_max=None, foil=False):
     """ Browse your bookshelfs.
 
 Flags
@@ -58,18 +58,19 @@ Flags
     --sort-by=METHOD    Where METHOD = 'name' | 'price'
     --price-min=X       Filter entries with its latest price being over X.
     --price-max=X       Filter entries with its latest price being under X.
+    --foil              Filter entries that are foil.
     --price-sum         Sum up prices from shelfs listed.
     """
     shelf_path = Path(config.home) / (shelf or '')
-    sort_by = 'name' if sort_by not in ACCEPTABLE_METHODS else sort_by
+    sort_by = 'name' if sort_by not in ACCEPTABLE_SORTS else sort_by
     bookshelf = create_bookshelf(shelf_path, sort_by)
-    summed_price = lister(bookshelf, q, qq, r, t, no_group, sort_by, price_sum, try_float(price_min), try_float(price_max))
+    summed_price = lister(bookshelf, q, qq, r, t, no_group, sort_by, price_sum, try_float(price_min), try_float(price_max), foil)
     if price_sum and r:
         print(f"Summed up price: {round(summed_price, 2)}")
 
 
 def lister(bookshelf, q=False, qq=False, r=False, t=False, no_group=False, sort_by='name', price_sum=False, price_min=None,
-           price_max=None):
+           price_max=None, foil=False):
     current_shelf = fix_shelf_prefix(bookshelf.current_path)
     plugin = find_plugin(current_shelf)
     total_price = 0.0
@@ -86,6 +87,9 @@ def lister(bookshelf, q=False, qq=False, r=False, t=False, no_group=False, sort_
                 continue
 
             if price_max is not None and price > price_max:
+                continue
+
+            if foil and not book_info.get('finish'):
                 continue
 
             total_price += price
@@ -108,7 +112,7 @@ def lister(bookshelf, q=False, qq=False, r=False, t=False, no_group=False, sort_
             if not qq:
                 print("")
 
-            sub_price = lister(create_bookshelf(sub_shelf, sort_by), q, qq, r, t, no_group, sort_by, price_sum, price_min, price_max)
+            sub_price = lister(create_bookshelf(sub_shelf, sort_by), q, qq, r, t, no_group, sort_by, price_sum, price_min, price_max, foil)
             if price_sum:
                 total_price += sub_price
         else:

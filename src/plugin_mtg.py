@@ -3,6 +3,7 @@ from pathlib import Path
 import sys
 import json
 from enum import Enum
+import colors as pycolors
 
 from .plugin_base import PluginBase
 
@@ -13,8 +14,9 @@ class MTGCardFinish(str, Enum):
 
 
 class PluginMTG(PluginBase):
-    def __init__(self, currency):
+    def __init__(self, currency, foil_color=None):
         self.currency = currency
+        self.foil_color = foil_color
         self.version = '1.0'
 
     def get_price(self, sf_card_data, finish=None):
@@ -91,9 +93,16 @@ class PluginMTG(PluginBase):
             metadata_str = f"{multiples}x "
         metadata_str += f"{metadata_json['name']} [{metadata_json['set']}#{metadata_json['collector_number']}]"
         if finish := metadata_json.get('finish'):
-            metadata_str += f" [{finish}]"
+            if self.foil_color:
+                metadata_str += f" [{self.__foil_color(finish)}]"
+            else:
+                metadata_str += f" [{finish}]"
         metadata_str += f" [{price}]"
         return metadata_str
+
+    def __foil_color(self, text):
+        foil_color = getattr(pycolors, self.foil_color)
+        return foil_color(text)
 
     def print_metadata(self, metadata_json, only_title=False, multiples=1):
         print(self.metadata_stringify(metadata_json, only_title, multiples))
