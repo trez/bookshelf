@@ -11,6 +11,7 @@ from pathlib import Path
 from pyclicommander import Commander
 
 from .bookshelf_config import config, find_plugin
+from .bookshelf_errors import NoPriceFoundError, NoEntryFound
 
 commander = Commander('bookshelf')
 
@@ -95,7 +96,7 @@ def lister(bookshelf, q=False, qq=False, r=False, t=False, no_group=False, sort_
             total_price += price
 
             if no_group and not q:
-                plugin.print_metadata(book_info, only_title=t, multiples=None)
+                plugin.print_metadata(book_info, only_title=t, multiples=1)
             else:
                 num_books += 1
                 if book is None:
@@ -164,8 +165,8 @@ def get_prices(book):
     return [b['price'] for b in book['price_history']]
 
 
-@commander.cli("add SHELF [ENTRY] [--times=N] [--foil] [--etched] [--cardset=SET]")
-def add_entry(shelf, entry=None, times=1, foil=False, etched=False, cardset=None):
+@commander.cli("add SHELF [ENTRY] [--times=N] [--foil] [--etched] [--cardset=SET] [--price=M]")
+def add_entry(shelf, entry=None, times=1, foil=False, etched=False, cardset=None, price=None):
     """ Add stuff to your bookshelf.
     """
     plugin = find_plugin(shelf)
@@ -180,9 +181,19 @@ def add_entry(shelf, entry=None, times=1, foil=False, etched=False, cardset=None
     elif etched:
         finish = "etched"
 
+    if price:
+        price = float(price)
+
     # FIXME: PluginMTGify
     # Find card on scryfall
-    entry_info = plugin.get_entry_info(entry, cardset, finish) if plugin else None
+    try:
+        entry_info = plugin.get_entry_info(entry, cardset, finish, price) if plugin else None
+    except NoPriceFoundError:
+        print("No price information available for entry")
+        return -1
+    except NoEntryFound:
+        print("Lookup failed for entry")
+        return -1
 
     # Put into bookshelf.
     if entry_info:
@@ -283,8 +294,7 @@ Flags
     price_max = try_float(price_max)
 
     # Any filters specified?
-    filters = [title, cardset, price_min, price_max]
-    if not any((f is not None for f in filters)):
+    if not any((f is not None for f in [title, cardset, price_min, price_max])):
         print("No filters specied.")
         return
 

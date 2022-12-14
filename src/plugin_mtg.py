@@ -6,6 +6,7 @@ from enum import Enum
 import colors as pycolors
 
 from .plugin_base import PluginBase
+from .bookshelf_errors import NoPriceFoundError, NoEntryFound
 
 set_set = {"Urza's Saga": 'usg', "Urza's Destiny": 'uds', '7th Edition': '7ed', 'Exodus': 'exo', 'Classic 6th Edition': '6ed', 
            'Limited Edition Beta': 'leb', 'Fallen Empires': 'fem', 'Alliances': 'all', 'Planeshift': 'pls', 'Mirrodin': 'mrd',
@@ -37,9 +38,12 @@ class PluginMTG(PluginBase):
             finish = 'foil'
 
         price_finish = f'{self.currency}_{finish}' if finish else self.currency
-        return round(float(prices.get(price_finish, '0.0')), 2)
+        if found_price := prices.get(price_finish):
+            return round(float(found_price), 2)
+        else:
+            return None
 
-    def get_entry_info(self, entry=None, cardset=None, finish=None):
+    def get_entry_info(self, entry=None, cardset=None, finish=None, price=None):
         card_info = None
         if entry:
             search_request_param = {
@@ -53,11 +57,13 @@ class PluginMTG(PluginBase):
             setcode, cardnum = cardset.split("#")
             card_info = requests.get(f"https://api.scryfall.com/cards/{setcode}/{cardnum}/en").json()
 
-        if card_info:
+        if card_info and not card_info.get('object') == "error":
             price_history = []
 
-            if price := self.get_price(card_info, finish):
+            if price or (price := self.get_price(card_info, finish)):
                 price_history.append({'date': self.get_timestamp(), 'price': price, 'currency': 'eur'})
+            else:
+                raise NoPriceFoundError
 
             mtg_dict = {
                 'bookshelf_type': 'mtg',
@@ -72,6 +78,8 @@ class PluginMTG(PluginBase):
             }
 
             return mtg_dict
+        else:
+            raise NoEntryFound
 
     def __get_card_info(self, oracle_id, cardset, finish):
         card_info_params = {
