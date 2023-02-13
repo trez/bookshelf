@@ -2,12 +2,14 @@ import os
 import json
 import uuid
 import sys
+import json
 from typing import List, Dict
 import itertools as it
 
 from dataclasses import dataclass
 from pathlib import Path
 
+from git import Repo
 from pyclicommander import Commander
 
 from .bookshelf_config import config, find_plugin
@@ -327,3 +329,88 @@ def searcher(bookshelf, filter_fun, depth=None):
             matches.extend(searcher(create_bookshelf(sub_shelf), filter_fun, depth and depth-1))
 
     return matches
+
+
+@commander.cli("generate-www [SHELF]")
+def generate_www(shelf):
+    shelf_path = Path(config.home) / (shelf or '')
+    bookshelf = create_bookshelf(shelf_path)
+    current_shelf = fix_shelf_prefix(bookshelf.current_path)
+    plugin = find_plugin(current_shelf)
+    cards = get_all_entries(bookshelf, {})
+    cards_json, paths_json = make_cards_json(cards)
+    with open('www/cards.js', 'w') as f:
+        f.write("var card_paths =")
+        f.write(json.dumps(paths_json, indent=1))
+        f.write(";\n")
+        f.write("\n")
+        f.write("var cards =")
+        f.write(json.dumps(cards_json, indent=1))
+        f.write(";")
+
+#    for c in cards.keys():
+#        print(c)
+   # for book_path, book_info in cards['Windswept Heath'].items():
+   #     print(f"{fix_shelf_prefix(book_path.parents[0])} => ", end='')
+   #     plugin.print_metadata(book_info, only_title=False, multiples=1)
+        
+
+def get_all_entries(bookshelf, entry_dict=None):
+    if not entry_dict:
+        entry_dict = {}
+
+    for book_path, book in bookshelf.books:
+        r = entry_dict.setdefault(book['name'], {})
+        r[book_path] = book
+
+    for sub_shelf in bookshelf.sub_shelfs:
+        entry_dict = get_all_entries(create_bookshelf(sub_shelf), entry_dict)
+
+    return entry_dict
+
+
+def make_cards_json(cards):
+    cards_json = {}
+    paths_json = {}
+    path_id = 0
+    for cardname, cards_info in cards.items():
+        card_json = {}
+        for card_path, card_info in cards_info.items():
+            card_set = f"{card_info['set']}#{card_info['collector_number']}"
+            if card_finish := card_info.get('finish'):
+                card_set += f"#{card_finish}"
+
+            card_path = fix_shelf_prefix(card_path.parents[0])
+            card_path_id = paths_json.get(card_path)
+            if not card_path_id:
+                paths_json[card_path] = path_id
+                card_path_id = path_id
+                path_id += 1
+
+            card_key = f"{card_set}@{card_path_id}"
+            card_json[card_key] = card_json.get(card_key, 0) + 1
+        cards_json[cardname] = card_json
+    inv_paths_json = {v: k for k, v in paths_json.items()}
+    return cards_json, inv_paths_json
+
+@commander.cli("price-added [SHELF]")
+def price_added(shelf=None):
+    shelf_path = fix_shelf_prefix(Path(config.home) / (shelf or ''))
+    plugin = find_plugin(shelf_path)
+    repo = Repo(Path(config.home))
+    books = []
+    for f in repo.untracked_files:
+        if f.startswith(shelf_path) and f.endswith('.bookshelf.metadata'):
+                with open(config.home + "/" + f, 'r') as book_data:
+                    book = json.load(book_data)
+                    book_path = Path(f).parents[0]
+                    books.append((book_path, book))
+
+    price_sum = 0
+    for book_path, book_info in books:
+        price_sum += latest_price(book_info)
+        plugin.print_metadata(book_info, only_title=False, multiples=1)
+
+    print(f"Price total: {round(price_sum, 2)}")
+
+
