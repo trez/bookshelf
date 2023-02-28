@@ -3,6 +3,8 @@ import json
 import uuid
 import sys
 import json
+import itertools
+import functools
 from typing import List, Dict
 import itertools as it
 
@@ -38,125 +40,74 @@ class Bookshelf:
     sub_shelfs: List[Path]
     books: List[Dict[str, str]]
 
+    def __iter__(self):
+        books = []
+        sub_shelfs = []
+        for f in self.current_path.iterdir():
+            if f.is_dir() and f.name not in IGNORED_FOLDERS:
+                possible_book = f / '.bookshelf.metadata'
+                if possible_book.exists():
+                    with open(possible_book, 'r') as book_data:
+                        book = json.load(book_data)
+                    if not self.filters or all(filter_fun(book) for filter_fun in self.filters):
+                        books.append((f, book))
+                else:
+                    if self.depth is None or self.depth > 0:
+                        sub_shelfs.append(f)
+
+        if self.flatten:
+            for sub_shelf in sub_shelfs:
+                sub_bookshelf = Bookshelf(sub_shelf, depth=(self.depth and self.depth-1), flatten=True, filters=self.filters)
+                books.extend(list(sub_bookshelf)[0][1])  # take second part of tuple from first element of list.
+                
+        if self.sort_by == 'name':
+            books.sort(key=lambda b: b[1]['name'])
+        elif self.sort_by == 'price':
+            books.sort(key=lambda b: latest_price(b[1]))
+
+        yield (self.current_path, books)
+
+        if not self.flatten:
+            for sub_shelf in sub_shelfs:
+                sub_bookshelf = Bookshelf(sub_shelf, sort_by=self.sort_by, depth=(self.depth and self.depth-1), filters=self.filters)
+                yield from sub_bookshelf
+
+    def __init__(self, shelf, depth=None, sort_by='name', filters=None, flatten=False):
+        """ List books and sub-bookshelfs """
+        shelf_path = Path(config.home) / (shelf or '')
+        # plugin = find_plugin(fix_shelf_prefix(shelf_path))
+
+        if not str(shelf_path.resolve()).startswith(home_path):
+            print("No peeking outside of ~root~")
+            sys.exit(1)
+
+        if not shelf_path.exists():
+            print("Shelf does not exist.")
+            sys.exit(1)
+
+        self.current_path = shelf_path
+        self.depth = depth
+        self.sort_by = 'name' if sort_by not in ACCEPTABLE_SORTS else sort_by
+        self.filters = filters if filters else []
+        self.flatten = flatten
+
+    def add_filter(self, b):
+        self.filters.append(b)
+
 
 def try_float(f):
     if f is not None:
         return float(f)
 
+
 def try_int(i):
     if i is not None:
         return int(i)
-
-@commander.cli("ls [SHELF] [-q] [-qq] [-r] [-t] [--no-group] [--sort-by=METHOD] [--price-sum] [--price-min=X] [--price-max=X] [--foil]")
-def cmd_ls(shelf=None, q=False, qq=False, r=False, t=False, no_group=False, sort_by='name', price_sum=False, price_min=None, price_max=None, foil=False):
-    """ Browse your bookshelfs.
-
-Flags
---------
-    -r                  Recursivly browse the shelfs.
-    -q                  Quiet, don't list entries.
-    -qq                 QUIET! don't list shelfs.
-    -t                  Print only title not any extra metadata.
-    --no-group          Don't group multiples of entries, row by row instead.
-    --sort-by=METHOD    Where METHOD = 'name' | 'price'
-    --price-min=X       Filter entries with its latest price being over X.
-    --price-max=X       Filter entries with its latest price being under X.
-    --foil              Filter entries that are foil.
-    --price-sum         Sum up prices from shelfs listed.
-    """
-    shelf_path = Path(config.home) / (shelf or '')
-    sort_by = 'name' if sort_by not in ACCEPTABLE_SORTS else sort_by
-    bookshelf = create_bookshelf(shelf_path, sort_by)
-    summed_price = lister(bookshelf, q, qq, r, t, no_group, sort_by, price_sum, try_float(price_min), try_float(price_max), foil)
-    if price_sum and r:
-        print(f"Summed up price: {round(summed_price, 2)}")
-
-
-def lister(bookshelf, q=False, qq=False, r=False, t=False, no_group=False, sort_by='name', price_sum=False, price_min=None,
-           price_max=None, foil=False):
-    current_shelf = fix_shelf_prefix(bookshelf.current_path)
-    plugin = find_plugin(current_shelf)
-    total_price = 0.0
-
-    if not qq:
-        print(f"=> {current_shelf} ({len(bookshelf.books)})")
-
-    for k, g in it.groupby(bookshelf.books, key=lambda r: r[1]['oracle_id']):
-        num_books = 0
-        book = None
-        for book_path, book_info in g:
-            price = latest_price(book_info)
-            if price_min is not None and price < price_min:
-                continue
-
-            if price_max is not None and price > price_max:
-                continue
-
-            if foil and not book_info.get('finish'):
-                continue
-
-            total_price += price
-
-            if no_group and not q:
-                plugin.print_metadata(book_info, only_title=t, multiples=1)
-            else:
-                num_books += 1
-                if book is None:
-                    book = book_info
-
-        if not no_group and book and not q:
-            plugin.print_metadata(book, only_title=t, multiples=num_books)
-
-    if price_sum:
-        print(f"Total price: {round(total_price, 2)}")
-
-    for sub_shelf in bookshelf.sub_shelfs:
-        if r:
-            if not qq:
-                print("")
-
-            sub_price = lister(create_bookshelf(sub_shelf, sort_by), q, qq, r, t, no_group, sort_by, price_sum, price_min, price_max, foil)
-            if price_sum:
-                total_price += sub_price
-        else:
-            if not qq:
-                print(f"==> {fix_shelf_prefix(sub_shelf)}")
-    return total_price
 
 
 def fix_shelf_prefix(shelf):
     fixed_shelf = str(shelf).removeprefix(home_path).removeprefix('/').removesuffix('/')
     return fixed_shelf or '~root~'
-
-
-def create_bookshelf(shelf_path, sort_by='name'):
-    books = []
-    shelfs = []
-
-    if not str(shelf_path.resolve()).startswith(home_path):
-        print("No peeking outside of ~root~")
-        sys.exit(1)
-
-    if not shelf_path.exists():
-        print("Shelf does not exist.")
-        sys.exit(1)
-
-    for f in shelf_path.iterdir():
-        if f.is_dir() and f.name not in IGNORED_FOLDERS:
-            possible_book = f / '.bookshelf.metadata'
-            if possible_book.exists():
-                with open(possible_book, 'r') as book_data:
-                    book = json.load(book_data)
-                books.append((f, book))
-            else:
-                shelfs.append(f)
-
-    if sort_by == 'name':
-        books.sort(key=lambda b: b[1]['name'])
-    elif sort_by == 'price':
-        books.sort(key=lambda b: latest_price(b[1]))
-
-    return Bookshelf(shelf_path, shelfs, books)
 
 
 def latest_price(book):
@@ -167,10 +118,89 @@ def get_prices(book):
     return [b['price'] for b in book['price_history']]
 
 
-@commander.cli("add SHELF [ENTRY] [--times=N] [--foil] [--etched] [--cardset=SET] [--price=M]")
-def add_entry(shelf, entry=None, times=1, foil=False, etched=False, cardset=None, price=None):
-    """ Add stuff to your bookshelf.
+@commander.cli("ls [SHELF] [-q] [-qq] [-r] [-t] [--no-group] [--sort-by=METHOD] [--price-sum] [--price-min=X] [--price-max=X] [--foil] [--flatten] [--reprint-group]")
+def cmd_ls(shelf=None, q=False, qq=False, r=False, t=False, no_group=False, sort_by='name', price_sum=False, price_min=None, price_max=None, foil=False, flatten=False, reprint_group=False):
+    """ Browse your bookshelf.
+
+Flags
+--------
+    -r                  Recursivly browse the shelfs.
+    -q                  Quiet, don't list entries.
+    -qq                 QUIET! don't list shelfs.
+    -t                  Print only title not any extra metadata.
+    --no-group          Don't group multiples of entries, row by row instead.
+    --reprint-group     Reprints gets grouped into one entry.
+    --sort-by=METHOD    Where METHOD = 'name' | 'price'
+    --price-sum         Sum up prices from shelfs listed.
+    --flatten           Treat all bookshelfs as if it was one big shelf.
+
+Filter flags
+--------
+    --price-min=X       Filter entries with its latest price being over X.
+    --price-max=X       Filter entries with its latest price being under X.
+    --foil              Filter entries that are foil.
     """
+ 
+    total_price = 0.0
+
+    bookshelf = Bookshelf(shelf, sort_by=sort_by, depth=(None if r else 0), flatten=flatten)
+
+    if price_min := try_float(price_min): bookshelf.add_filter(lambda b: latest_price(b) > price_min)
+    if price_max := try_float(price_max): bookshelf.add_filter(lambda b: latest_price(b) < price_max)
+    if foil: bookshelf.add_filter(lambda b: b.get('finish') is not None)
+
+    for current_path, books in bookshelf:
+        plugin = find_plugin(fix_shelf_prefix(current_path))
+
+        shelf_price = 0.0
+        grouped_books = []
+        prev_title = None
+        current_groups = {}
+        for book_path, book in books:
+            shelf_price += latest_price(book)
+            book_title = plugin.get_title(book)
+            book_id = plugin.get_unique_id(book, edition=not reprint_group)
+            if prev_title != book_title or no_group:
+                prev_title = book_title
+                grouped_books.extend(current_groups.values())
+                current_groups = {}
+            current_groups.setdefault(book_id, []).append((book_path, book))
+        grouped_books.extend(current_groups.values())
+        total_price += shelf_price
+
+        if not qq:
+            print(f"=> {fix_shelf_prefix(current_path)} ({len(books)}) [{round(shelf_price, 2)}]")
+
+        if not q:
+            for group in grouped_books:
+                plugin.print_metadata(group[0][1], only_title=t, multiples=None if no_group else len(group))
+
+        if not qq and not q:
+            print("")
+
+    if price_sum:
+        print(f"Total price: {round(total_price, 2)}")
+
+
+
+@commander.cli("add SHELF [ENTRY] [--times=N] [--foil] [--etched] [--cardset=SET] [--price=M] [--find-old]")
+def add_entry(shelf, entry=None, times=1, foil=False, etched=False, cardset=None, price=None, find_old=False):
+    """ Add stuff to your bookshelf.
+
+Flags
+--------
+    --times=N           Add N copies.
+    --price=M           Use price given instead of looking it up.
+    """
+
+    def entrify(entry_name):
+        entry_split = entry_name.split("/")
+        if len(entry_split) > 1:
+            name = entry_split[0]
+        else:
+            name = entry_name
+        return name.replace('\'', '').replace(',', '').strip().lower()
+
     plugin = find_plugin(shelf)
 
     # FIXME: (MTG) Determine 'finish' for card entry
@@ -197,6 +227,10 @@ def add_entry(shelf, entry=None, times=1, foil=False, etched=False, cardset=None
         print("Lookup failed for entry")
         return -1
 
+#    if find_old:
+#        for shelf_path, books in Bookshelf(shelf, depth=recursive):
+#            for book_path, book in:
+
     # Put into bookshelf.
     if entry_info:
         for n in range(int(times)):
@@ -211,25 +245,30 @@ def add_entry(shelf, entry=None, times=1, foil=False, etched=False, cardset=None
     else:
         print("Nothing found.")
 
-def entrify(entry_name):
-    entry_split = entry_name.split("/")
-    if len(entry_split) > 1:
-        name = entry_split[0]
-    else:
-        name = entry_name
 
-    return name.replace('\'', '').replace(',', '').strip().lower()
+@commander.cli("price-update SHELF [ENTRY] [PRICE] [-r] [--dry] [--min-change=X]")
+def price_update(shelf, entry=None, price=None, r=False, dry=False, min_change=None):
+    """ Update shelf with prices either by lookup or by given price. 
 
+Flags
+--------
+    -r                  Recursivly browse the shelfs.
+    --dry               Get a preview of how update would look like by doing a dry run.
+    --min-change=X      Only update if change difference is larger than X.
+    """
+    recursive = None if r else 0
+    min_change = try_float(min_change)
 
-@commander.cli("price-update SHELF [ENTRY] [PRICE] [-r] [--dry]")
-def price_update(shelf, entry=None, price=None, r=False, dry=False):
-    """ Update shelf with prices either by lookup or by given price. """
-    shelf_path = Path(config.home) / (shelf or '')
-    plugin = find_plugin(fix_shelf_prefix(shelf_path))
-    bookshelf = create_bookshelf(shelf_path)
+    bookshelf = Bookshelf(shelf, depth=recursive, flatten=True)
 
     collection = {}
-    pricer(bookshelf, collection, r)
+    for shelf_path, books in bookshelf:
+        plugin = find_plugin(fix_shelf_prefix(shelf_path))
+        for book_path, book in books:
+            book_id = plugin.get_unique_id(book)
+            book_collection = collection.setdefault(book_id, [])
+            book_collection.append((book_path, book))
+
     plugin.price_update(collection)
 
     price_fluctuation = 0.0
@@ -239,96 +278,74 @@ def price_update(shelf, entry=None, price=None, r=False, dry=False):
             prices = get_prices(book_info)
             price_change_text = "~"
             if len(prices) > 1:
-                a, b = prices[-2:]
+                a, b = prices[-2:]  # last two entries.
                 price_change = round(b - a, 2)
+            else:
+                price_change = round(prices[-1], 2)
+
+            if min_change is None or abs(price_change) >= min_change:
                 price_fluctuation += price_change
                 price_change_text = f"+{price_change}" if price_change >= 0 else f"{price_change}"
 
-            print(f"{p} => {plugin.metadata_stringify(book_info, None)} [{price_change_text}]")
+                print(f"{p} => {plugin.metadata_stringify(book_info, None)} [{price_change_text}]")
 
-            if not dry:
-                with open(book_path / '.bookshelf.metadata', 'w') as f:
-                    f.write(json.dumps(book_info, indent=2))
+                if not dry:
+                    with open(book_path / '.bookshelf.metadata', 'w') as f:
+                        f.write(json.dumps(book_info, indent=2))
+
     print(f"Price fluctuation: {price_fluctuation}")
-
-
-def pricer(bookshelf, collection, r=False):
-    current_shelf = fix_shelf_prefix(bookshelf.current_path)
-    plugin = find_plugin(current_shelf)
-
-    for book_path, book in bookshelf.books:
-        book_id = plugin.get_unique_id(book)
-        book_collection = collection.setdefault(book_id, [])
-        book_collection.append((book_path, book))
-
-    if r:
-        for sub_shelf in bookshelf.sub_shelfs:
-            pricer(create_bookshelf(sub_shelf), collection, r)
 
 
 @commander.cli("search [SHELF] [--title=NAME] [--cardset=SET] [--depth=N] [-q] [-t] [--price-sum] [--full-path] [--price-min=X] [--price-max=X]")
 def cmd_search(shelf=None, title=None, cardset=None, depth=None, q=False, t=False, price_sum=False, full_path=False, price_min=None, price_max=None):
-    """ Look through your bookshelfs for a specific title.
+    """ Search through your bookshelfs with different filters.
 
 Flags
 --------
     -q                  Quiet, don't list entries.
     -t                  Print only title not any extra metadata.
     --depth=N           Limit how deep into the shelfs one looks, default is indefinitly.
-    --price-min=X       Filter entries with its latest price being over X.
-    --price-max=X       Filter entries with its latest price being under X.
     --price-sum         Sum up prices from shelfs listed.
     --full-path         Show the real name of entries.
-    """
-    def filter_fun(book):
-        # print(f"{title=}")
-        price = latest_price(book)
-        match = True
-        match &= title is None or book['name'].lower() == title.lower()
-        match &= cardset is None or book['set'] == cardset
-        match &= price_min is None or price >= price_min
-        match &= price_max is None or price <= price_max
-        return match
 
-    shelf_path = Path(config.home) / (shelf or '')
-    bookshelf = create_bookshelf(shelf_path)
-    price_min = try_float(price_min)
-    price_max = try_float(price_max)
+Filter flags
+--------
+    --price-min=X       Filter entries with its latest price being over X.
+    --price-max=X       Filter entries with its latest price being under X.
+    --cardset=SET       Filter entries that matches, eg. SET, SET#CollectorNumber.
+    """
 
     # Any filters specified?
-    if not any((f is not None for f in [title, cardset, price_min, price_max])):
+    filters = []
+    if price_min := try_float(price_min):
+        filters.append(lambda b: latest_price(b) > price_min)
+    if price_max := try_float(price_max):
+        filters.append(lambda b: latest_price(b) < price_max)
+    if title is not None:
+        filters.append(lambda b: b['name'].lower() == title.lower())
+    if cardset is not None: 
+        filters.append(lambda b: b['set'] == cardset or f"{b['set']}#{b['collector_number']}" == cardset)
+
+    if not filters:
         print("No filters specied.")
         return
 
-    matches = searcher(bookshelf, filter_fun, try_int(depth))
-    summed_price = 0.0
+    bookshelf = Bookshelf(shelf, depth=try_int(depth), flatten=True, filters=filters)
 
-    for match_path, match_info in matches:
-        p = fix_shelf_prefix(match_path)
+    summed_price = 0.0
+    for book_path, book in list(bookshelf)[0][1]:
+        p = fix_shelf_prefix(book_path)
         plugin = find_plugin(p)
-        summed_price += latest_price(match_info)
+        summed_price += latest_price(book)
         if not q:
             if full_path:
                 print(f"{p} => ", end='')
             else:
-                print(f"{fix_shelf_prefix(match_path.parents[0])} => ", end='')
-            plugin.print_metadata(match_info, only_title=t, multiples=None)
+                print(f"{fix_shelf_prefix(book_path.parents[0])} => ", end='')
+            plugin.print_metadata(book, only_title=t, multiples=None)
 
     if price_sum:
         print(f"Summed up price: {round(summed_price, 2)}")
-
-
-def searcher(bookshelf, filter_fun, depth=None):
-    matches = []
-    for book_path, book in bookshelf.books:
-        if filter_fun(book):
-            matches.append((book_path, book))
-
-    if depth is None or depth > 0:
-        for sub_shelf in bookshelf.sub_shelfs:
-            matches.extend(searcher(create_bookshelf(sub_shelf), filter_fun, depth and depth-1))
-
-    return matches
 
 
 @commander.cli("generate-www [SHELF]")
@@ -412,5 +429,3 @@ def price_added(shelf=None):
         plugin.print_metadata(book_info, only_title=False, multiples=1)
 
     print(f"Price total: {round(price_sum, 2)}")
-
-

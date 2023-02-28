@@ -135,8 +135,17 @@ class PluginMTG(PluginBase):
     def print_metadata(self, metadata_json, only_title=False, multiples=1):
         print(self.metadata_stringify(metadata_json, only_title, multiples))
 
-    def get_unique_id(self, metadata_json):
-        return metadata_json['scryfall_id']
+    def get_unique_id(self, metadata_json, edition=True):
+        if edition:
+            if finish := metadata_json.get('finish'):
+                return metadata_json['scryfall_id'] + f"#{finish}"
+            else:
+                return metadata_json['scryfall_id']
+        else:
+            return metadata_json['oracle_id']
+
+    def get_title(self, metadata_json):
+        return metadata_json.get('name')
 
     def price_update(self, collection):
         json_data_path = Path("resources/cards.json")
@@ -144,14 +153,15 @@ class PluginMTG(PluginBase):
 
         print("Load new prices...")
         with open(json_data_path, "r") as f:
-            json_data = json.load(f)
+            scryfall_data = json.load(f)
 
         print("Find updates")
-        for jd in json_data:
-            sf_id = jd.get('id')
+        for sf_entry in scryfall_data:
+            sf_id = sf_entry.get('id')
+
             if entries := collection.get(sf_id):
                 for card_path, card_info in entries:
-                    new_price = self.get_price(jd, finish=card_info['finish'])
+                    new_price = self.get_price(sf_entry, finish=card_info['finish'])
                     new_price_entry = {
                         'date': self.get_timestamp(),
                         'price': new_price,
