@@ -37,25 +37,10 @@ def main_cli():
 @dataclass
 class Bookshelf:
     current_path: Path
-    sub_shelfs: List[Path]
-    books: List[Dict[str, str]]
 
     def __iter__(self):
-        books = []
-        sub_shelfs = []
-        for f in self.current_path.iterdir():
-            if f.is_dir() and f.name not in IGNORED_FOLDERS:
-                possible_book = f / '.bookshelf.metadata'
-                if possible_book.exists():
-                    with open(possible_book, 'r') as book_data:
-                        book = json.load(book_data)
-                    if not self.filters or all(filter_fun(book) for filter_fun in self.filters):
-                        books.append((f, book))
-                else:
-                    if self.depth is None or self.depth > 0:
-                        sub_shelfs.append(f)
-
-        if self.flatten:
+        books, sub_shelfs = self.__get_books_and_shelfs()
+        if self.flatten and (self.depth is None or self.depth > 0):
             for sub_shelf in sub_shelfs:
                 sub_bookshelf = Bookshelf(sub_shelf, depth=(self.depth and self.depth-1), flatten=True, filters=self.filters)
                 books.extend(list(sub_bookshelf)[0][1])  # take second part of tuple from first element of list.
@@ -67,10 +52,25 @@ class Bookshelf:
 
         yield (self.current_path, books)
 
-        if not self.flatten:
+        if not self.flatten and (self.depth is None or self.depth > 0):
             for sub_shelf in sub_shelfs:
                 sub_bookshelf = Bookshelf(sub_shelf, sort_by=self.sort_by, depth=(self.depth and self.depth-1), filters=self.filters)
                 yield from sub_bookshelf
+
+    def __get_books_and_shelfs(self):
+        books = []
+        sub_shelfs = []
+        for f in self.current_path.iterdir():
+            if f.is_dir() and f.name not in IGNORED_FOLDERS:
+                possible_book = f / '.bookshelf.metadata'
+                if possible_book.exists():
+                    with open(possible_book, 'r') as book_data:
+                        book = json.load(book_data)
+                    if not self.filters or all(filter_fun(book) for filter_fun in self.filters):
+                        books.append((f, book))
+                else:
+                    sub_shelfs.append(f)
+        return books, sub_shelfs
 
     def __init__(self, shelf, depth=None, sort_by='name', filters=None, flatten=False):
         """ List books and sub-bookshelfs """
@@ -90,6 +90,10 @@ class Bookshelf:
         self.sort_by = 'name' if sort_by not in ACCEPTABLE_SORTS else sort_by
         self.filters = filters if filters else []
         self.flatten = flatten
+
+    def get_sub_shelfs(self):
+        _, sub_shelfs = self.__get_books_and_shelfs()
+        return sub_shelfs
 
     def add_filter(self, b):
         self.filters.append(b)
@@ -174,6 +178,10 @@ Filter flags
         if not q:
             for group in grouped_books:
                 plugin.print_metadata(group[0][1], only_title=t, multiples=None if no_group else len(group))
+
+        if not qq and not r:
+            for sub_shelf in bookshelf.get_sub_shelfs():
+                print(f"==> {fix_shelf_prefix(sub_shelf)}")
 
         if not qq and not q:
             print("")
