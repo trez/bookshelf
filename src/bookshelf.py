@@ -121,7 +121,9 @@ def latest_price(book):
 def get_prices(book):
     return [b['price'] for b in book['price_history']]
 
-
+#
+# ===================================================================================================================
+#
 @commander.cli("ls [SHELF] [-q] [-qq] [-r] [-t] [--no-group] [--sort-by=METHOD] [--price-sum] [--price-min=X] [--price-max=X] [--foil] [--flatten] [--reprint-group]")
 def cmd_ls(shelf=None, q=False, qq=False, r=False, t=False, no_group=False, sort_by='name', price_sum=False, price_min=None, price_max=None, foil=False, flatten=False, reprint_group=False):
     """ Browse your bookshelf.
@@ -190,7 +192,9 @@ Filter flags
         print(f"Total price: {round(total_price, 2)}")
 
 
-
+#
+# ===================================================================================================================
+#
 @commander.cli("add SHELF [ENTRY] [--times=N] [--foil] [--etched] [--cardset=SET] [--price=M] [--find-old]")
 def add_entry(shelf, entry=None, times=1, foil=False, etched=False, cardset=None, price=None, find_old=False):
     """ Add stuff to your bookshelf.
@@ -254,6 +258,9 @@ Flags
         print("Nothing found.")
 
 
+#
+# ===================================================================================================================
+#
 @commander.cli("price-update SHELF [ENTRY] [PRICE] [-r] [--dry] [--min-change=X]")
 def price_update(shelf, entry=None, price=None, r=False, dry=False, min_change=None):
     """ Update shelf with prices either by lookup or by given price. 
@@ -303,7 +310,9 @@ Flags
 
     print(f"Price fluctuation: {price_fluctuation}")
 
-
+#
+# ===================================================================================================================
+#
 @commander.cli("search [SHELF] [--title=NAME] [--cardset=SET] [--depth=N] [-q] [-t] [--price-sum] [--full-path] [--price-min=X] [--price-max=X]")
 def cmd_search(shelf=None, title=None, cardset=None, depth=None, q=False, t=False, price_sum=False, full_path=False, price_min=None, price_max=None):
     """ Search through your bookshelfs with different filters.
@@ -356,13 +365,20 @@ Filter flags
         print(f"Summed up price: {round(summed_price, 2)}")
 
 
+#
+# ===================================================================================================================
+#
 @commander.cli("generate-www [SHELF]")
 def generate_www(shelf):
-    shelf_path = Path(config.home) / (shelf or '')
-    bookshelf = create_bookshelf(shelf_path)
-    current_shelf = fix_shelf_prefix(bookshelf.current_path)
-    plugin = find_plugin(current_shelf)
-    cards = get_all_entries(bookshelf, {})
+    bookshelf = Bookshelf(shelf, depth=None)
+
+    cards = {}
+    for shelf_path, books in bookshelf:
+        plugin = find_plugin(fix_shelf_prefix(shelf_path))
+        for book_path, book in books:
+            r = cards.setdefault(plugin.get_title(book), {})
+            r[book_path] = book
+
     cards_json, paths_json = make_cards_json(cards)
     with open('www/cards.js', 'w') as f:
         f.write("var card_paths =")
@@ -372,26 +388,6 @@ def generate_www(shelf):
         f.write("var cards =")
         f.write(json.dumps(cards_json, indent=1))
         f.write(";")
-
-#    for c in cards.keys():
-#        print(c)
-   # for book_path, book_info in cards['Windswept Heath'].items():
-   #     print(f"{fix_shelf_prefix(book_path.parents[0])} => ", end='')
-   #     plugin.print_metadata(book_info, only_title=False, multiples=1)
-        
-
-def get_all_entries(bookshelf, entry_dict=None):
-    if not entry_dict:
-        entry_dict = {}
-
-    for book_path, book in bookshelf.books:
-        r = entry_dict.setdefault(book['name'], {})
-        r[book_path] = book
-
-    for sub_shelf in bookshelf.sub_shelfs:
-        entry_dict = get_all_entries(create_bookshelf(sub_shelf), entry_dict)
-
-    return entry_dict
 
 
 def make_cards_json(cards):
@@ -418,6 +414,10 @@ def make_cards_json(cards):
     inv_paths_json = {v: k for k, v in paths_json.items()}
     return cards_json, inv_paths_json
 
+
+#
+# ===================================================================================================================
+#
 @commander.cli("price-added [SHELF]")
 def price_added(shelf=None):
     shelf_path = fix_shelf_prefix(Path(config.home) / (shelf or ''))
