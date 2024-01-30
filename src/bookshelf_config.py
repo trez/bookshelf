@@ -6,10 +6,12 @@ from .plugin_mtg import PluginMTG
 
 class BookshelfConfig:
     home = "/home/trez/lekplats/billy"
+    new_entry = "folder"
     shelfs = {
         "mtg/": PluginMTG(
             currency='eur',
             foil_color='yellow',
+            new_entry='file',
         )
     }
 

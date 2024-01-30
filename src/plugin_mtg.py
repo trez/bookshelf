@@ -25,10 +25,11 @@ class MTGCardFinish(str, Enum):
 
 
 class PluginMTG(PluginBase):
-    def __init__(self, currency, foil_color=None):
+    def __init__(self, currency, foil_color=None, new_entry=None):
         self.currency = currency
         self.foil_color = foil_color
         self.version = '1.0'
+        self.new_entry = new_entry
 
     def get_price(self, sf_card_data, finish=None):
         prices = sf_card_data.get('prices', {})
@@ -125,7 +126,7 @@ class PluginMTG(PluginBase):
                 metadata_str += f" [{self.__foil_color(finish)}]"
             else:
                 metadata_str += f" [{finish}]"
-        metadata_str += f" [{price}]"
+        metadata_str += f" [€{price}]"
         return metadata_str
 
     def __foil_color(self, text):

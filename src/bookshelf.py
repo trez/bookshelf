@@ -35,14 +35,28 @@ def main_cli():
 
 
 @dataclass
+class ShelfInfo:
+    def __init__(self, path, metadata, books):
+        self.path = path
+        self.metadata = metadata
+        self.books = books
+
+
+class SubShelfInfo:
+    def __init__(self, path, metadata=None):
+        self.path = path
+        self.metadata = metadata
+
+
+@dataclass
 class Bookshelf:
     current_path: Path
 
     def __iter__(self):
-        books, sub_shelfs = self.__get_books_and_shelfs()
+        books, sub_shelfs, metadata = self.__get_books_and_shelfs()
         if self.flatten and (self.depth is None or self.depth > 0):
             for sub_shelf in sub_shelfs:
-                sub_bookshelf = Bookshelf(sub_shelf, depth=(self.depth and self.depth-1), flatten=True, filters=self.filters)
+                sub_bookshelf = Bookshelf(sub_shelf.path, depth=(self.depth and self.depth-1), flatten=True, filters=self.filters)
                 books.extend(list(sub_bookshelf)[0][1])  # take second part of tuple from first element of list.
                 
         if self.sort_by == 'name':
@@ -50,27 +64,41 @@ class Bookshelf:
         elif self.sort_by == 'price':
             books.sort(key=lambda b: latest_price(b[1]))
 
-        yield (self.current_path, books)
+        yield (self.current_path, books, metadata)
 
         if not self.flatten and (self.depth is None or self.depth > 0):
             for sub_shelf in sub_shelfs:
-                sub_bookshelf = Bookshelf(sub_shelf, sort_by=self.sort_by, depth=(self.depth and self.depth-1), filters=self.filters)
+                sub_bookshelf = Bookshelf(sub_shelf.path, sort_by=self.sort_by, depth=(self.depth and self.depth-1), filters=self.filters)
                 yield from sub_bookshelf
 
     def __get_books_and_shelfs(self):
         books = []
         sub_shelfs = []
+        metadata = None
+
         for f in self.current_path.iterdir():
             if f.is_dir() and f.name not in IGNORED_FOLDERS:
                 possible_book = f / '.bookshelf.metadata'
                 if possible_book.exists():
                     with open(possible_book, 'r') as book_data:
                         book = json.load(book_data)
-                    if not self.filters or all(filter_fun(book) for filter_fun in self.filters):
-                        books.append((f, book))
+                    if book.get('bookshelf_type') != 'bookshelf_metadata':
+                        if not self.filters or all(filter_fun(book) for filter_fun in self.filters):
+                            books.append((f, book))
+                    else:
+                        sub_shelfs.append(SubShelfInfo(f, book))
                 else:
-                    sub_shelfs.append(f)
-        return books, sub_shelfs
+                    sub_shelfs.append(SubShelfInfo(f))
+            elif f.is_file() and f.name.endswith('.bookshelf.metadata'):
+                with open(f, 'r') as book_data:
+                    book = json.load(book_data)
+                if btype := book.get('bookshelf_type'):
+                    if btype == 'bookshelf_metadata':
+                        metadata = book
+                    elif not self.filters or all(filter_fun(book) for filter_fun in self.filters):
+                        books.append((f, book))
+        return books, sub_shelfs, metadata
+
 
     def __init__(self, shelf, depth=None, sort_by='name', filters=None, flatten=False):
         """ List books and sub-bookshelfs """
@@ -92,7 +120,7 @@ class Bookshelf:
         self.flatten = flatten
 
     def get_sub_shelfs(self):
-        _, sub_shelfs = self.__get_books_and_shelfs()
+        _books, sub_shelfs, _metadata = self.__get_books_and_shelfs()
         return sub_shelfs
 
     def add_filter(self, b):
@@ -151,11 +179,14 @@ Filter flags
 
     bookshelf = Bookshelf(shelf, sort_by=sort_by, depth=(None if r else 0), flatten=flatten)
 
-    if price_min := try_float(price_min): bookshelf.add_filter(lambda b: latest_price(b) > price_min)
-    if price_max := try_float(price_max): bookshelf.add_filter(lambda b: latest_price(b) < price_max)
-    if foil: bookshelf.add_filter(lambda b: b.get('finish') is not None)
+    if price_min := try_float(price_min):
+        bookshelf.add_filter(lambda b: latest_price(b) > price_min)
+    if price_max := try_float(price_max):
+        bookshelf.add_filter(lambda b: latest_price(b) < price_max)
+    if foil:
+        bookshelf.add_filter(lambda b: b.get('finish') is not None)
 
-    for current_path, books in bookshelf:
+    for current_path, books, metadata in bookshelf:
         plugin = find_plugin(fix_shelf_prefix(current_path))
 
         shelf_price = 0.0
@@ -175,21 +206,30 @@ Filter flags
         total_price += shelf_price
 
         if not qq:
-            print(f"=> {fix_shelf_prefix(current_path)} ({len(books)}) [{round(shelf_price, 2)}]")
+            print(f"=> {fix_shelf_prefix(current_path)} ({len(books)}) [€{round(shelf_price, 2)}]", end="")
+            if metadata:
+                print(f" - {metadata['tagline']}")
+            else:
+                print("")
 
         if not q:
             for group in grouped_books:
                 plugin.print_metadata(group[0][1], only_title=t, multiples=None if no_group else len(group))
 
-        if not qq and not r:
-            for sub_shelf in bookshelf.get_sub_shelfs():
-                print(f"==> {fix_shelf_prefix(sub_shelf)}")
+        if not qq and not r and (sub_shelfs := bookshelf.get_sub_shelfs()):
+            max_column = max([len(fix_shelf_prefix(s.path)) for s in sub_shelfs]) + 1
+            for sub_shelf in sub_shelfs:
+                print(f"==> {fix_shelf_prefix(sub_shelf.path):{max_column}}", end="")
+                if sub_shelf.metadata:
+                    print(f"- {sub_shelf.metadata.get('tagline')}")
+                else:
+                    print("")
 
-        if not qq and not q:
-            print("")
+        # if not qq and not q:
+            # print("")
 
     if price_sum:
-        print(f"Total price: {round(total_price, 2)}")
+        print(f"Total price: €{round(total_price, 2)}")
 
 
 #
@@ -248,11 +288,21 @@ Flags
         for n in range(int(times)):
             entry_name = entry if entry else entrify(entry_info.get('name'))
             entry_id = f"{entry_name}-{str(uuid.uuid4())}"
-            path = os.path.join(config.home, shelf, entry_id)
-            Path(path).mkdir(parents=True)
-            path_metadata = os.path.join(path, '.bookshelf.metadata')
+            path_metadata = None
+
+            if plugin.new_entry == 'folder' or (plugin.new_entry == None and config.new_entry == 'folder'):
+                path = os.path.join(config.home, shelf, entry_id)
+                Path(path).mkdir(parents=True)
+                path_metadata = os.path.join(path, '.bookshelf.metadata')
+            else:
+                path = os.path.join(config.home, shelf)
+                if not Path(path).exists:
+                    Path(path).mkdir(parents=True)
+                path_metadata = os.path.join(path, f'{entry_id}.bookshelf.metadata')
+
             with open(path_metadata, 'w') as f:
                 f.write(json.dumps(entry_info, indent=2))
+
             print(f"{fix_shelf_prefix(shelf)} => {plugin.metadata_stringify(entry_info, multiples=None)}")
     else:
         print("Nothing found.")
@@ -274,10 +324,8 @@ Flags
     recursive = None if r else 0
     min_change = try_float(min_change)
 
-    bookshelf = Bookshelf(shelf, depth=recursive, flatten=True)
-
     collection = {}
-    for shelf_path, books in bookshelf:
+    for shelf_path, books, _metadata in Bookshelf(shelf, depth=recursive, flatten=True):
         plugin = find_plugin(fix_shelf_prefix(shelf_path))
         for book_path, book in books:
             book_id = plugin.get_unique_id(book)
@@ -347,10 +395,10 @@ Filter flags
         print("No filters specied.")
         return
 
-    bookshelf = Bookshelf(shelf, depth=try_int(depth), flatten=True, filters=filters)
-
     summed_price = 0.0
-    for book_path, book in list(bookshelf)[0][1]:
+    bookshelf = Bookshelf(shelf, depth=try_int(depth), flatten=True, filters=filters)
+    _shelf_path, books, _metadata = next(iter(bookshelf))
+    for book_path, book in books:
         p = fix_shelf_prefix(book_path)
         plugin = find_plugin(p)
         summed_price += latest_price(book)
@@ -368,51 +416,52 @@ Filter flags
 #
 # ===================================================================================================================
 #
+
 @commander.cli("generate-www [SHELF]")
 def generate_www(shelf):
-    bookshelf = Bookshelf(shelf, depth=None)
-
-    cards = {}
-    for shelf_path, books in bookshelf:
+    cards_json = {}
+    for shelf_path, books, _ in Bookshelf(shelf, depth=None):
         plugin = find_plugin(fix_shelf_prefix(shelf_path))
+        shelf_json = {}
         for book_path, book in books:
-            r = cards.setdefault(plugin.get_title(book), {})
-            r[book_path] = book
+            book_title = plugin.get_title(book)
+            r = shelf_json.setdefault(book_title, {})
 
-    cards_json, paths_json = make_cards_json(cards)
+            card_set = f"{book['set']}#{book['collector_number']}"
+            if card_finish := book.get('finish'):
+                card_set += f"#{card_finish}"
+
+            r[card_set] = r.get(card_set, 0) + 1
+        if shelf_json:
+            cards_json[fix_shelf_prefix(shelf_path)] = shelf_json
+
     with open('www/cards.js', 'w') as f:
-        f.write("var card_paths =")
-        f.write(json.dumps(paths_json, indent=1))
-        f.write(";\n")
-        f.write("\n")
         f.write("var cards =")
         f.write(json.dumps(cards_json, indent=1))
         f.write(";")
 
 
-def make_cards_json(cards):
-    cards_json = {}
-    paths_json = {}
-    path_id = 0
-    for cardname, cards_info in cards.items():
-        card_json = {}
-        for card_path, card_info in cards_info.items():
-            card_set = f"{card_info['set']}#{card_info['collector_number']}"
-            if card_finish := card_info.get('finish'):
-                card_set += f"#{card_finish}"
+# def make_cards_json(cards):
+#     paths_json = {}
+#     path_id = 0
+#     for cardname, cards_info in cards.items():
+#         card_json = {}
+#         for card_path, card_info in cards_info.items():
 
-            card_path = fix_shelf_prefix(card_path.parents[0])
-            card_path_id = paths_json.get(card_path)
-            if not card_path_id:
-                paths_json[card_path] = path_id
-                card_path_id = path_id
-                path_id += 1
+#             card_path = 
+#             card_path_id = paths_json.get(card_path)
+#             if not card_path_id:
+#                 paths_json[card_path] = path_id
+#                 card_path_id = path_id
+#                 path_id += 1
 
-            card_key = f"{card_set}@{card_path_id}"
-            card_json[card_key] = card_json.get(card_key, 0) + 1
-        cards_json[cardname] = card_json
-    inv_paths_json = {v: k for k, v in paths_json.items()}
-    return cards_json, inv_paths_json
+#             card_key = f"{card_set}@{card_path_id}"
+
+#             card_json[
+#             card_json[card_key] = card_json.get(card_key, 0) + 1
+#         cards_json[cardname] = card_json
+#     inv_paths_json = {v: k for k, v in paths_json.items()}
+#     return cards_json, inv_paths_json
 
 
 #
