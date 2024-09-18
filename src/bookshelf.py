@@ -68,8 +68,7 @@ class Bookshelf:
 
         if not self.flatten and (self.depth is None or self.depth > 0):
             for sub_shelf in sub_shelfs:
-                sub_bookshelf = Bookshelf(sub_shelf.path, sort_by=self.sort_by, depth=(self.depth and self.depth-1), filters=self.filters)
-                yield from sub_bookshelf
+                yield from Bookshelf(sub_shelf.path, sort_by=self.sort_by, depth=(self.depth and self.depth-1), filters=self.filters)
 
     def __get_books_and_shelfs(self):
         books = []
@@ -396,8 +395,7 @@ Filter flags
         return
 
     summed_price = 0.0
-    bookshelf = Bookshelf(shelf, depth=try_int(depth), flatten=True, filters=filters)
-    _shelf_path, books, _metadata = next(iter(bookshelf))
+    [(_shelf_path, books, _metadata )] = Bookshelf(shelf, depth=try_int(depth), flatten=True, filters=filters)
     for book_path, book in books:
         p = fix_shelf_prefix(book_path)
         plugin = find_plugin(p)
@@ -486,3 +484,21 @@ def price_added(shelf=None):
         plugin.print_metadata(book_info, only_title=False, multiples=1)
 
     print(f"Price total: {round(price_sum, 2)}")
+
+
+#
+# ===================================================================================================================
+#
+@commander.cli("consolidate SHELF1 SHELF2")
+def consolidate(shelf1, shelf2):
+    src_books = {}
+
+    [(shelf_path, books, _)] = Bookshelf(shelf1, depth=None)
+    if plugin := find_plugin(fix_shelf_prefix(shelf_path)):
+        src_books = {plugin.get_unique_id(book) for _, book in books}
+
+    [(shelf_path, books, _)] = Bookshelf(shelf2, depth=None)
+    if plugin := find_plugin(fix_shelf_prefix(shelf_path)):
+        for _, book in books:
+            if plugin.get_unique_id(book) in src_books:
+                plugin.print_metadata(book, only_title=False, multiples=1)
